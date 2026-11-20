@@ -31,11 +31,19 @@ trades) and CSV import (merge trades from a CSV in the same format; kept in that
 
 Run:  python build_stats.py     or double-click make_stats.bat (re-run after each session)
 """
-import glob, html, json, os, re
-from datetime import datetime
+import glob, html, json, os, re, shutil, sqlite3, tempfile
+from datetime import datetime, timedelta, timezone
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 LOG_DIR = os.path.join(os.path.expanduser("~"), "Documents", "NinjaTrader 8", "log")
+# NinjaTrader's own database keeps every order + fill for much longer than the log folder: the history before the
+# first log day comes from here (read from a temporary COPY - NinjaTrader's file is never opened or changed)
+DB_FILE = os.path.join(os.path.expanduser("~"), "Documents", "NinjaTrader 8", "db", "NinjaTrader.sqlite")
+HISTORY_STRAT = ("OSOK history", "history (NT8 database)")
+# the older strategy versions / a manual close also ended OSOK trades with these orders
+HISTORY_EXIT_NAMES = {"TakeProfit", "StopLoss", "StopLossMkt", "Close", "Exit", "Exit on session close"}
+HISTORY_UNNAMED_EXIT_SEC = 30 * 60   # an unnamed fill (manual / prop-platform close) counts as the exit only this soon
+DB_ACTIONS = {0: "Buy", 1: "Buy to cover", 2: "Sell", 3: "Sell short"}
 LOCAL_OUT = os.path.join(HERE, "local", "OSOK_Stats.html")
 DOCS_OUT = os.path.join(HERE, "docs", "index.html")
 DOCS_JSON = os.path.join(HERE, "docs", "trades.json")
@@ -53,7 +61,8 @@ ACCOUNTS_HEADER = (
 NEWS_FILE = os.path.join(HERE, "news_events.txt")
 TIMES_FILE = os.path.join(HERE, "osok_times.txt")
 
-POINT_VALUE = {"MNQ": 2.0, "MES": 5.0, "NQ": 20.0, "ES": 50.0, "M2K": 5.0, "RTY": 50.0, "MYM": 0.5, "YM": 5.0}
+POINT_VALUE = {"MNQ": 2.0, "MES": 5.0, "NQ": 20.0, "ES": 50.0, "M2K": 5.0, "RTY": 50.0, "MYM": 0.5, "YM": 5.0,
+               "GC": 100.0, "MGC": 10.0, "CL": 1000.0, "MCL": 100.0, "SI": 5000.0, "SIL": 1000.0}
 ENTRY_NAMES = {"BuyStop", "SellStop"}
 EXIT_NAMES = {"TakeProfit", "StopLoss", "StopLossMkt"}
 STRATS = {  # strategy name prefix -> (Strategy filter value, version label)
@@ -174,6 +183,68 @@ def parse_logs():
     return events
 
 
+def _ticks_local(v):
+    """.NET ticks (UTC) -> naive PC-local datetime (daylight saving handled by Windows)"""
+    utc = datetime(1, 1, 1) + timedelta(microseconds=int(v) // 10)
+    return datetime.fromtimestamp(utc.replace(tzinfo=timezone.utc).timestamp())
+
+
+def first_log_day():
+    days = [m.group(1) for m in (re.search(r"log\.(\d{8})\.", os.path.basename(p))
+                                 for p in glob.glob(os.path.join(LOG_DIR, "log.*.en.txt"))) if m]
+    return datetime.strptime(min(days), "%Y%m%d") if days else None
+
+
+def parse_db(before):
+    """OSOK entries + exits from NinjaTrader.sqlite for the days BEFORE `before` (the first log day; all days if None).
+    Same event format as parse_logs(). Returns [] when there is no database."""
+    if not os.path.exists(DB_FILE):
+        return []
+    tmpdir = tempfile.mkdtemp(prefix="osok_db_")
+    copy = os.path.join(tmpdir, "nt.sqlite")
+    events = []
+    try:
+        shutil.copy2(DB_FILE, copy)
+        con = sqlite3.connect("file:{}?mode=ro".format(copy.replace("\\", "/")), uri=True)
+        cur = con.cursor()
+        acct = {r[0]: r[1] for r in cur.execute("select Id, Name from Accounts")}
+        master = {r[0]: (r[1], r[2]) for r in cur.execute("select Id, Name, PointValue from MasterInstruments")}
+        inst = {}
+        for iid, mid, expiry in cur.execute("select Id, MasterInstrument, Expiry from Instruments"):
+            name, pv = master.get(mid, ("?", 0.0))
+            try:
+                exp = (datetime(1, 1, 1) + timedelta(microseconds=int(expiry) // 10)).strftime("%m-%y")
+            except Exception:
+                exp = ""
+            inst[iid] = ("{} {}".format(name, exp).strip(), float(pv or 0))
+        fill_time = {}
+        for oid, tm in cur.execute("select OrderId, min(Time) from Executions group by OrderId"):
+            fill_time[oid] = tm
+        q = """select OrderId, Account, Instrument, Name, Oco, OrderAction, LimitPrice, StopPrice, Filled, AvgFillPrice, Time
+               from Orders where Filled > 0"""
+        for oid, a, iid, name, oco, act, lmt, stp, filled, px, tm in cur.execute(q):
+            name = name or ""
+            oco = oco or ""
+            atm_entry = name == "Entry" and oco.startswith(ATM_OCO)
+            if (name not in ENTRY_NAMES and name not in EXIT_NAMES and not atm_entry and not ATM_EXIT_RE.match(name)
+                    and name not in HISTORY_EXIT_NAMES and name != ""):
+                continue
+            ts = _ticks_local(fill_time.get(oid, tm))
+            if before is not None and ts >= before:
+                continue
+            iname, pv = inst.get(iid, ("?", 0.0))
+            events.append(dict(ts=ts, acct=acct.get(a, str(a)), name=name, inst=iname, action=DB_ACTIONS.get(act, str(act)),
+                               lmt=float(lmt or 0), stp=float(stp or 0), qty=int(filled), px=float(px or 0),
+                               strat="", atm=atm_entry, src="db", pv=pv))
+        con.close()
+    except Exception as ex:
+        print("  [warning] NinjaTrader database not read ({}) - only the log files are used".format(ex))
+        events = []
+    finally:
+        shutil.rmtree(tmpdir, ignore_errors=True)
+    return events
+
+
 def session_for(ts):
     best = None
     for hhmm, label in SESSIONS:
@@ -194,10 +265,18 @@ def session_for(ts):
 def build_trades(events, news):
     trades, used = [], set()
     for i, e in enumerate(events):
+        if i in used:                              # already used as the exit of an earlier trade
+            continue
+        hist = False
         if e["atm"]:
             st = ATM_STRAT
             is_long = e["action"] == "Buy"
             exit_names = None                      # ATM: Target1-3 / Stop / Stop1-3 / StopMkt / Close
+        elif e["name"] in ENTRY_NAMES and e.get("src") == "db":
+            st = HISTORY_STRAT                     # the database does not say which OSOK strategy placed it
+            is_long = e["name"] == "BuyStop"
+            exit_names = HISTORY_EXIT_NAMES
+            hist = True
         elif e["name"] in ENTRY_NAMES:
             st = strat_of(e["strat"])
             if st is None:
@@ -214,19 +293,26 @@ def build_trades(events, news):
                 break
             if j in used or c["acct"] != e["acct"] or c["inst"] != e["inst"] or c["action"] not in exit_actions:
                 continue
-            if (c["name"] not in exit_names) if exit_names is not None else (not ATM_EXIT_RE.match(c["name"])):
+            if hist:
+                # history: named exits, an unnamed close soon after, or the other OSOK side filling (both sides filled)
+                secs = (c["ts"] - e["ts"]).total_seconds()
+                ok = (c["name"] in exit_names or (c["name"] == "" and secs <= HISTORY_UNNAMED_EXIT_SEC)
+                      or (c["name"] in ENTRY_NAMES and c.get("src") == "db" and secs <= HISTORY_UNNAMED_EXIT_SEC))
+                if not ok:
+                    continue
+            elif (c["name"] not in exit_names) if exit_names is not None else (not ATM_EXIT_RE.match(c["name"])):
                 continue
             xs.append(c); used.add(j); got += c["qty"]
-            if exit_names is not None or got >= e["qty"]:
+            if (exit_names is not None and not hist) or got >= e["qty"]:
                 break
         x = None
-        if xs and (exit_names is not None or got >= e["qty"]):
+        if xs and ((exit_names is not None and not hist) or got >= e["qty"]):
             q = sum(c["qty"] for c in xs) or 1
             x = dict(px=round(sum(c["px"] * c["qty"] for c in xs) / q, 4), name="+".join(c["name"] for c in xs),
                      ts=xs[-1]["ts"], lmt=xs[0]["lmt"] if len(xs) == 1 else 0.0,
                      tp=len(xs) == 1 and (xs[0]["name"] == "TakeProfit" or xs[0]["name"].startswith("Target")))
         root = e["inst"].split(" ")[0].upper()
-        pv = POINT_VALUE.get(root, 0.0)
+        pv = POINT_VALUE.get(root) or e.get("pv") or 0.0
         hhmm, sess, start = session_for(e["ts"])
         date = e["ts"].strftime("%Y-%m-%d")
         t = dict(date=date, dow=e["ts"].strftime("%a"), time=e["ts"].strftime("%H:%M:%S.%f")[:-3],
@@ -403,7 +489,7 @@ function drawFilters() {
   const sessions = distinct("session").sort((a, b) => {
     const ia = SESSION_ORDER.indexOf(a), ib = SESSION_ORDER.indexOf(b);
     return (ia < 0 ? 99 : ia) - (ib < 0 ? 99 : ib) || a.localeCompare(b); });
-  const strats = ["No SL", "With SL", "ATM Entry"];
+  const strats = ["No SL", "With SL", "ATM Entry", "OSOK history"].filter(s => DATA.some(t => t.strat === s) || s === "No SL" || s === "With SL");
   const news = distinct("news").sort();
   const dates = DATA.map(t => t.date).sort();
   // one chip per account after Paper / Live: paper accounts first, then live, natural order (Paper 2 before Paper 10)
@@ -521,6 +607,7 @@ function caveats(ts, s) {
   if (s.n) items.push(`<b>Entries before the start time:</b> ${s.early} of ${s.n} filled before it (yellow 'vs start') - pre-event jitter bigger than the PAD, not the event move itself.`);
   if (ts.some(t => t.date === "2026-11-08")) items.push(`<b>11/08 both sides filled</b> (No SL v1.0 / V6): the Buy Stop and the Sell Stop both filled within 0.1 s - the old version's OCO did not hold in that spike. Both reached their TP.`);
   if (ts.some(t => t.pts && Math.abs(t.pts) >= 15.5 && Math.abs(t.pts) <= 16.5)) items.push(`<b>The target was not always 8 pts</b> (e.g. 11/17 18:00 used 16). Compare like with like.`);
+  if (ts.some(t => t.strat === "OSOK history")) items.push(`<b>OSOK history</b> = BuyStop / SellStop trades from NinjaTrader's own database, before the first day in the log folder. The database does not record which OSOK strategy (No SL / With SL, old or new version) placed them, so they have their own chip; the trades from the log files keep their exact strategy.`);
   if (ts.some(t => t.strat === "ATM Entry")) items.push(`<b>ATM Entry</b> = trades from the OSOK ATM Level Entry window in BRACKET mode (Timer, Pick, typed level or MKT). Its LONG / SHORT single entries and manual Chart Trader trades are not counted: they are not OSOK straddles. A trade closed in parts (TP1-3 / SL1-3 / FLATTEN) shows the average exit price of all its contracts.`);
   items.push(`<b>Gross, before commissions</b>, at the instrument's $ per point (MNQ $2).`);
   items.push(`<b>Sample size:</b> ${s.n} trade(s) over ${s.days} session(s) for these filters - a start, not proof.`);
@@ -746,7 +833,13 @@ def build():
     global SESSIONS
     SESSIONS = load_times()
     news = load_news()
-    trades = build_trades(parse_logs(), news)
+    log_events = parse_logs()
+    cutoff = first_log_day()
+    db_events = parse_db(cutoff)
+    events = sorted(db_events + log_events, key=lambda e: e["ts"])
+    trades = build_trades(events, news)
+    print("Sources: log files from {} | NinjaTrader database before that: {} order fills".format(
+        cutoff.strftime("%Y-%m-%d") if cutoff else "-", len(db_events)))
     built = datetime.now().strftime("%Y-%m-%d %H:%M")
 
     # account list: public names + forced Paper / Live (local\\accounts.txt)

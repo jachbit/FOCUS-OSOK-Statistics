@@ -45,6 +45,13 @@ The data comes from NinjaTrader's own log files (`Documents\NinjaTrader 8\log\lo
 
 Exits are matched on the same account and instrument. Manual Chart Trader trades are never counted.
 
+**History before the log folder:** NinjaTrader keeps only recent log files, but its own database
+(`Documents\NinjaTrader 8\db\NinjaTrader.sqlite`) keeps every order and fill. For the days before the first log
+file the build reads the BuyStop / SellStop fills from a temporary **copy** of that database (NinjaTrader's file
+is never opened or changed). The database does not record which OSOK strategy placed an order, so these trades
+show as **OSOK history**. Their exit is the next TakeProfit / StopLoss / Close / Exit fill, an unnamed fill
+within 30 minutes (a manual or prop-platform close), or the other OSOK side filling (both sides filled).
+
 ### Accounts (`local\accounts.txt`)
 
 Your account list stays on your PC (`local\` is never uploaded), one line per account:
