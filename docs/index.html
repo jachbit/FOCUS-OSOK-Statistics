@@ -1,0 +1,391 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>OSOK Stats</title>
+<style>
+  :root { --bg0:#0a1628; --bg1:#0f1f3d; --bg2:#162545; --bg3:#1d2f52; --border:#2a3f62; --orange:#e65c00; --orange2:#ff8c42;
+          --white:#e8e8e8; --green:#22c55e; --red:#ef4444; --amber:#fbbf24; --blue:#3b82f6;
+          --font-mono:'Courier New','Lucida Console',monospace; --font-ui:-apple-system,'Segoe UI',Arial,sans-serif; }
+  * { box-sizing:border-box; margin:0; padding:0; }
+  body { background:var(--bg0); color:var(--white); font-family:var(--font-mono); font-size:13px; line-height:1.55; padding:0 0 60px; }
+  .site-header { background:var(--bg1); border-bottom:2px solid var(--orange); padding:18px 32px 14px; display:flex; flex-wrap:wrap;
+                 align-items:baseline; gap:18px; }
+  .logo { font-size:20px; font-weight:bold; color:var(--orange); letter-spacing:2px; white-space:nowrap; }
+  .logo sup { font-size:11px; }
+  .site-header h1 { font-family:var(--font-ui); font-size:15px; font-weight:700; letter-spacing:1px; text-transform:uppercase; }
+  .header-meta { margin-left:auto; font-size:12px; text-align:right; line-height:1.6; font-weight:bold; }
+  .header-meta strong { color:var(--orange); }
+  .container { max-width:1180px; margin:0 auto; padding:22px 32px; }
+  .subtitle { font-size:12px; font-weight:bold; margin-bottom:14px; }
+  .filters { position:sticky; top:0; z-index:10; background:var(--bg1); border:1px solid var(--border); border-left:4px solid var(--orange);
+             padding:10px 14px; margin-bottom:16px; }
+  .frow { display:flex; flex-wrap:wrap; align-items:center; gap:6px; margin:4px 0; }
+  .frow .lab { font-family:var(--font-ui); font-weight:700; color:var(--orange2); font-size:12px; text-transform:uppercase; width:96px; }
+  .chip { background:var(--bg3); color:#fff; border:1px solid var(--border); font-family:var(--font-mono); font-size:12px; font-weight:bold;
+          padding:4px 10px; cursor:pointer; border-radius:3px; }
+  .chip.on { background:var(--orange); border-color:var(--orange); }
+  .chip:hover { border-color:var(--orange2); }
+  .frow input[type=date] { background:var(--bg3); color:#fff; border:1px solid var(--border); font-family:var(--font-mono); font-size:12px;
+                           font-weight:bold; padding:3px 6px; color-scheme:dark; }
+  h2 { font-family:var(--font-ui); font-size:17px; color:var(--orange); border-bottom:1px solid var(--border); padding-bottom:6px; margin:24px 0 12px; }
+  h3 { font-family:var(--font-ui); font-size:14px; color:var(--orange2); margin:18px 0 8px; }
+  .mandate { background:var(--bg2); border:1px solid var(--border); border-left:4px solid var(--orange); padding:12px 16px; margin-bottom:14px;
+             font-size:13px; font-weight:bold; }
+  .kpis { display:grid; grid-template-columns:repeat(auto-fit,minmax(200px,1fr)); gap:12px; }
+  .kpi { background:var(--bg2); border:1px solid var(--border); border-top:3px solid var(--orange); padding:12px 14px; }
+  .kpi .k { font-family:var(--font-ui); font-size:12px; font-weight:700; text-transform:uppercase; letter-spacing:1px; color:var(--orange2); }
+  .kpi .v { font-size:24px; font-weight:bold; margin:4px 0; }
+  .pos { color:var(--green) !important; } .neg { color:var(--red) !important; } .warn { color:var(--amber) !important; }
+  .kpi .m { font-size:12px; font-weight:bold; }
+  .chart { width:100%; height:auto; background:var(--bg1); border:1px solid var(--border); display:block; }
+  .chart .curve { fill:none; stroke:var(--blue); stroke-width:2.5; }
+  .chart .zero { stroke:var(--border); stroke-dasharray:4 4; }
+  .chart .axis { fill:var(--white); font-size:12px; font-weight:bold; font-family:var(--font-mono); }
+  .grid2 { display:grid; grid-template-columns:repeat(auto-fit,minmax(420px,1fr)); gap:18px; }
+  table { width:100%; border-collapse:collapse; font-size:12px; }
+  th { background:var(--bg3); color:var(--orange2); font-family:var(--font-ui); font-weight:700; text-align:right; padding:7px 8px;
+       border-bottom:1px solid var(--border); white-space:nowrap; }
+  td { padding:6px 8px; text-align:right; border-bottom:1px solid var(--border); font-weight:bold; white-space:nowrap; }
+  th.l, td.l { text-align:left; }
+  tbody tr:nth-child(even) { background:var(--bg1); }
+  td.math { white-space:normal; min-width:300px; }
+  .scroll { overflow-x:auto; border:1px solid var(--border); }
+  .tag { display:inline-block; padding:1px 8px; font-size:12px; font-weight:bold; border-radius:3px; }
+  .tag.WIN { background:#14532d; color:#bbf7d0; } .tag.LOSS { background:#7f1d1d; color:#fecaca; }
+  .tag.BE, .tag.OPEN { background:var(--bg3); color:var(--white); }
+  .tag.news { background:#78350f; color:#fde68a; }
+  ul { margin-left:20px; } li { margin:6px 0; font-weight:bold; }
+  .empty { padding:18px; font-weight:bold; background:var(--bg2); border:1px dashed var(--border); }
+  footer { max-width:1180px; margin:30px auto 0; padding:14px 32px; border-top:1px solid var(--border); font-size:12px; font-weight:bold;
+           text-align:center; line-height:1.8; }
+  footer .verse { color:var(--orange2); }
+  .chip.act { background:#14365f; }
+  .inote { font-weight:bold; color:var(--amber); }
+  .tag.imp { background:#1e3a8a; color:#dbeafe; }
+  @media (max-width:640px) { .site-header, .container, footer { padding-left:16px; padding-right:16px; } .grid2 { grid-template-columns:1fr; }
+                             .frow .lab { width:100%; } }
+  /* PDF (print): ink-saving - white page, no accent fills; LIGHT_GREY bands + accent left bar / underline */
+  @media print {
+    @page { size: letter landscape; margin: 12mm; }
+    body { background:#fff !important; color:#000 !important; font-size:10px; padding:0; }
+    .site-header { background:#fff !important; border-bottom:1px solid #999; position:static; padding:0 0 6px; }
+    .site-header h1, .header-meta { color:#002b5c !important; } .logo { color:#002b5c !important; }
+    .filters, .mandate, .noprint { display:none !important; }
+    .container { padding:6px 0; max-width:none; }
+    .subtitle { color:#000; font-size:10px; }
+    h2, h3 { background:#f0f0f0 !important; color:#002b5c !important; border-left:4px solid #002b5c; border-bottom:1px solid #002b5c;
+             padding:3px 8px; page-break-after:avoid; }
+    .kpi { background:#fff !important; border:1px solid #bbb !important; border-top:1px solid #bbb !important; }
+    .kpi .k { color:#002b5c !important; } .kpi .v, .kpi .m { color:#000 !important; }
+    .pos { color:#0d6125 !important; } .neg { color:#8c1a05 !important; } .warn { color:#8a5a00 !important; }
+    .chart { background:#fff !important; border:1px solid #bbb; } .chart .axis { fill:#000 !important; } .chart .curve { stroke:#002b5c !important; }
+    th { background:#f0f0f0 !important; color:#002b5c !important; } td { color:#000; border-bottom:1px solid #ddd; }
+    tbody tr:nth-child(even) { background:#fafafa !important; }
+    .scroll { overflow:visible; border:none; } table { font-size:9px; } tr { page-break-inside:avoid; }
+    .tag { border:1px solid #888; background:#fff !important; color:#000 !important; }
+    li { color:#000; }
+    footer { color:#000; border-top:1px solid #999; } footer .verse { color:#000 !important; }
+    * { -webkit-print-color-adjust:exact; print-color-adjust:exact; }
+  }
+</style></head>
+<body>
+<header class="site-header">
+  <div class="logo">F.O.C.U.S.<sup>&copy;</sup></div>
+  <h1>OSOK Stats</h1><span class="noprint" style="font-weight:bold"></span>
+  <div class="header-meta">Jachbit 2026 &middot; built <strong>2026-11-20 07:55</strong><br>source: NinjaTrader 8 logs</div>
+</header>
+<main class="container">
+  <div class="subtitle" id="subtitle"></div>
+  <div class="filters" id="filters"></div>
+  <div class="frow noprint" style="margin:-6px 0 14px">
+    <button class="chip act" id="bPdf" title="Print the current filtered view as a PDF (ink-saving style)">PDF</button>
+    <button class="chip act" id="bCsv" title="Download the filtered trades as a CSV">CSV export</button>
+    <button class="chip act" id="bImp" title="Merge trades from a CSV in the same format (kept in this browser)">CSV import</button>
+    <button class="chip" id="bClr" title="Remove the imported trades from this browser">Clear imported</button>
+    <input type="file" id="fImp" accept=".csv,text/csv" style="display:none">
+    <span class="inote" id="impNote"></span>
+  </div>
+  <div class="mandate">One-Shot-One-Kill straddle: a few seconds before the start time a Buy Stop and a Sell Stop go in around the price (PAD),
+  linked OCO; the first move fills one side and the exit orders go in (No SL: Take Profit only; With SL: Take Profit + Stop Loss).
+  Times are the PC's (Pacific). Built from NinjaTrader's own log files - double-click <b>make_stats.bat</b> after each session.
+  Click the filters above: every number below recalculates.</div>
+  <div class="kpis" id="kpis"></div>
+  <h3>Cumulative P/L (gross, $)</h3>
+  <div id="chart"></div>
+  <div class="grid2"><div id="bySession"></div><div id="byNews"></div></div>
+  <div class="grid2"><div id="byStrat"></div><div id="bySide"></div></div>
+  <div class="grid2"><div id="byAcct"></div><div id="byVer"></div></div>
+  <h3>Every trade, with the math</h3>
+  <div class="scroll"><table><thead><tr><th>#</th><th class="l">Date</th><th class="l">OSOK Time</th><th class="l">News</th><th>Entry fill (PT)</th>
+    <th>vs start</th><th class="l">Strategy</th><th class="l">Side</th><th>Stop</th><th>Fill</th><th>Slip</th><th>Exit</th>
+    <th class="l">Result math</th><th>Result</th><th class="l">Account</th></tr></thead><tbody id="rows"></tbody></table></div>
+  <h2>Read this before trusting the numbers</h2>
+  <ul id="caveats"></ul>
+</main>
+<footer>
+  F.O.C.U.S.&copy; &middot; Jachbit 2026 &middot; OSOK Stats<br>
+  <span class="verse">John 3:16 | 1 John 3:16 | Matt 6:33 | Jer 33:3 | Prov 3:5-6 | Prov 27:17</span><br>
+  &copy; 2026 Jachbit. All rights reserved. May not be copied or shared without express written consent of the publisher. linktr.ee/jachbit
+</footer>
+<script>
+const LOGDATA = [{"date": "2026-11-01", "dow": "Sun", "time": "15:04:57.848", "session": "18:00 Globex", "start": "15:05", "vs": -2.2, "news": "", "strat": "No SL", "version": "No SL v1.0 (V6)", "acct": "Paper 1", "paper": true, "inst": "MNQ 12-26", "root": "MNQ", "pv": 2.0, "side": "LONG", "qty": 1, "stop": 28617.0, "entry": 28619.25, "slip": 2.25, "exit": 28627.25, "xname": "TakeProfit", "xtime": "15:04:58", "tpl": 28627.25, "pts": 8.0, "usd": 16.0, "secs": 0.6, "result": "WIN"}, {"date": "2026-11-08", "dow": "Sun", "time": "15:00:02.616", "session": "18:00 Globex", "start": "15:00", "vs": 2.6, "news": "", "strat": "No SL", "version": "No SL v1.0 (V6)", "acct": "Paper 1", "paper": true, "inst": "MNQ 12-26", "root": "MNQ", "pv": 2.0, "side": "LONG", "qty": 1, "stop": 26882.25, "entry": 26884.0, "slip": 1.75, "exit": 26892.0, "xname": "TakeProfit", "xtime": "15:00:02", "tpl": 26892.0, "pts": 8.0, "usd": 16.0, "secs": 0.2, "result": "WIN"}, {"date": "2026-11-08", "dow": "Sun", "time": "15:00:02.694", "session": "18:00 Globex", "start": "15:00", "vs": 2.7, "news": "", "strat": "No SL", "version": "No SL v1.0 (V6)", "acct": "Paper 1", "paper": true, "inst": "MNQ 12-26", "root": "MNQ", "pv": 2.0, "side": "SHORT", "qty": 1, "stop": 26876.25, "entry": 26860.5, "slip": 15.75, "exit": 26852.5, "xname": "TakeProfit", "xtime": "15:00:43", "tpl": 26852.5, "pts": 8.0, "usd": 16.0, "secs": 40.8, "result": "WIN"}, {"date": "2026-11-09", "dow": "Mon", "time": "06:29:58.349", "session": "9:30 NY Open", "start": "06:30", "vs": -1.7, "news": "", "strat": "No SL", "version": "No SL v1.0 (V6)", "acct": "Paper 2", "paper": true, "inst": "MNQ 12-26", "root": "MNQ", "pv": 2.0, "side": "LONG", "qty": 1, "stop": 27347.5, "entry": 27347.75, "slip": 0.25, "exit": 27355.75, "xname": "TakeProfit", "xtime": "06:30:00", "tpl": 27355.75, "pts": 8.0, "usd": 16.0, "secs": 2.0, "result": "WIN"}, {"date": "2026-11-09", "dow": "Mon", "time": "15:00:04.276", "session": "18:00 Globex", "start": "15:00", "vs": 4.3, "news": "", "strat": "No SL", "version": "No SL v1.0 (V6)", "acct": "Paper 3", "paper": true, "inst": "MNQ 12-26", "root": "MNQ", "pv": 2.0, "side": "LONG", "qty": 1, "stop": 28065.25, "entry": 28075.25, "slip": 10.0, "exit": 28083.25, "xname": "TakeProfit", "xtime": "15:00:04", "tpl": 28083.25, "pts": 8.0, "usd": 16.0, "secs": 0.4, "result": "WIN"}, {"date": "2026-11-10", "dow": "Tue", "time": "06:29:53.796", "session": "9:30 NY Open", "start": "06:30", "vs": -6.2, "news": "", "strat": "No SL", "version": "No SL v1.0 (V6)", "acct": "Paper 2", "paper": true, "inst": "MNQ 12-26", "root": "MNQ", "pv": 2.0, "side": "LONG", "qty": 1, "stop": 27740.0, "entry": 27741.25, "slip": 1.25, "exit": 27749.25, "xname": "TakeProfit", "xtime": "06:29:58", "tpl": 27749.25, "pts": 8.0, "usd": 16.0, "secs": 4.9, "result": "WIN"}, {"date": "2026-11-11", "dow": "Wed", "time": "06:29:58.625", "session": "9:30 NY Open", "start": "06:30", "vs": -1.4, "news": "", "strat": "No SL", "version": "No SL v1.0 (V6)", "acct": "Paper 2", "paper": true, "inst": "MNQ 12-26", "root": "MNQ", "pv": 2.0, "side": "LONG", "qty": 1, "stop": 28353.5, "entry": 28353.5, "slip": 0.0, "exit": 28361.5, "xname": "TakeProfit", "xtime": "06:30:07", "tpl": 28361.5, "pts": 8.0, "usd": 16.0, "secs": 8.7, "result": "WIN"}, {"date": "2026-11-12", "dow": "Thu", "time": "06:30:00.676", "session": "9:30 NY Open", "start": "06:30", "vs": 0.7, "news": "", "strat": "No SL", "version": "No SL v1.0 (V6)", "acct": "Paper 2", "paper": true, "inst": "MNQ 12-26", "root": "MNQ", "pv": 2.0, "side": "SHORT", "qty": 1, "stop": 28061.25, "entry": 28060.25, "slip": 1.0, "exit": 28051.5, "xname": "TakeProfit", "xtime": "06:30:00", "tpl": 28052.25, "pts": 8.75, "usd": 17.5, "secs": 0.3, "result": "WIN"}, {"date": "2026-11-12", "dow": "Thu", "time": "14:59:59.856", "session": "18:00 Globex", "start": "15:00", "vs": -0.1, "news": "", "strat": "No SL", "version": "No SL v1.0 (V6)", "acct": "Paper 4", "paper": true, "inst": "MNQ 12-26", "root": "MNQ", "pv": 2.0, "side": "LONG", "qty": 1, "stop": 28398.25, "entry": 28400.75, "slip": 2.5, "exit": 28408.75, "xname": "TakeProfit", "xtime": "15:00:01", "tpl": 28408.75, "pts": 8.0, "usd": 16.0, "secs": 1.7, "result": "WIN"}, {"date": "2026-11-13", "dow": "Fri", "time": "05:29:57.600", "session": "8:30 News", "start": "05:30", "vs": -2.4, "news": "PPI", "strat": "No SL", "version": "No SL v1.x", "acct": "Paper 1", "paper": true, "inst": "MNQ 12-26", "root": "MNQ", "pv": 2.0, "side": "LONG", "qty": 1, "stop": 28435.75, "entry": 28436.5, "slip": 0.75, "exit": 28453.25, "xname": "TakeProfit", "xtime": "05:30:04", "tpl": 28444.5, "pts": 16.75, "usd": 33.5, "secs": 6.7, "result": "WIN"}, {"date": "2026-11-13", "dow": "Fri", "time": "06:29:59.042", "session": "9:30 NY Open", "start": "06:30", "vs": -1.0, "news": "", "strat": "No SL", "version": "No SL v1.x", "acct": "Paper 2", "paper": true, "inst": "MNQ 12-26", "root": "MNQ", "pv": 2.0, "side": "SHORT", "qty": 1, "stop": 28390.75, "entry": 28390.25, "slip": 0.5, "exit": 28382.25, "xname": "TakeProfit", "xtime": "06:29:59", "tpl": 28382.25, "pts": 8.0, "usd": 16.0, "secs": 0.4, "result": "WIN"}, {"date": "2026-11-15", "dow": "Sun", "time": "15:00:01.565", "session": "18:00 Globex", "start": "15:00", "vs": 1.6, "news": "", "strat": "No SL", "version": "No SL v1.x", "acct": "Paper 3", "paper": true, "inst": "MNQ 12-26", "root": "MNQ", "pv": 2.0, "side": "LONG", "qty": 1, "stop": 28075.75, "entry": 28082.25, "slip": 6.5, "exit": 28111.0, "xname": "TakeProfit", "xtime": "15:00:01", "tpl": 28090.25, "pts": 28.75, "usd": 57.5, "secs": 0.2, "result": "WIN"}, {"date": "2026-11-16", "dow": "Mon", "time": "06:30:00.582", "session": "9:30 NY Open", "start": "06:30", "vs": 0.6, "news": "", "strat": "No SL", "version": "No SL v1.x", "acct": "Paper 2", "paper": true, "inst": "MNQ 12-26", "root": "MNQ", "pv": 2.0, "side": "LONG", "qty": 1, "stop": 27671.75, "entry": 27671.75, "slip": 0.0, "exit": 27679.75, "xname": "TakeProfit", "xtime": "06:39:21", "tpl": 27679.75, "pts": 8.0, "usd": 16.0, "secs": 560.5, "result": "WIN"}, {"date": "2026-11-16", "dow": "Mon", "time": "15:04:58.683", "session": "18:00 Globex", "start": "15:05", "vs": -1.3, "news": "", "strat": "No SL", "version": "No SL v1.x", "acct": "Paper 1", "paper": true, "inst": "MNQ 12-26", "root": "MNQ", "pv": 2.0, "side": "LONG", "qty": 1, "stop": 27255.75, "entry": 27256.0, "slip": 0.25, "exit": 27264.0, "xname": "TakeProfit", "xtime": "15:05:04", "tpl": 27264.0, "pts": 8.0, "usd": 16.0, "secs": 5.7, "result": "WIN"}, {"date": "2026-11-17", "dow": "Tue", "time": "05:30:00.472", "session": "8:30 News", "start": "05:30", "vs": 0.5, "news": "", "strat": "No SL", "version": "No SL v1.x", "acct": "Paper 3", "paper": true, "inst": "MNQ 12-26", "root": "MNQ", "pv": 2.0, "side": "SHORT", "qty": 1, "stop": 27402.25, "entry": 27400.5, "slip": 1.75, "exit": 27392.5, "xname": "TakeProfit", "xtime": "05:30:05", "tpl": 27392.5, "pts": 8.0, "usd": 16.0, "secs": 5.3, "result": "WIN"}, {"date": "2026-11-17", "dow": "Tue", "time": "06:30:00.459", "session": "9:30 NY Open", "start": "06:30", "vs": 0.5, "news": "", "strat": "No SL", "version": "No SL v1.x", "acct": "Paper 2", "paper": true, "inst": "MNQ 12-26", "root": "MNQ", "pv": 2.0, "side": "SHORT", "qty": 1, "stop": 27335.25, "entry": 27335.25, "slip": 0.0, "exit": 27327.0, "xname": "TakeProfit", "xtime": "06:30:00", "tpl": 27327.25, "pts": 8.25, "usd": 16.5, "secs": 0.2, "result": "WIN"}, {"date": "2026-11-17", "dow": "Tue", "time": "15:00:02.783", "session": "18:00 Globex", "start": "15:00", "vs": 2.8, "news": "", "strat": "No SL", "version": "No SL v1.x", "acct": "Paper 4", "paper": true, "inst": "MNQ 12-26", "root": "MNQ", "pv": 2.0, "side": "LONG", "qty": 1, "stop": 27451.0, "entry": 27451.75, "slip": 0.75, "exit": 27467.75, "xname": "TakeProfit", "xtime": "15:00:05", "tpl": 27467.75, "pts": 16.0, "usd": 32.0, "secs": 3.1, "result": "WIN"}, {"date": "2026-11-18", "dow": "Wed", "time": "06:30:02.217", "session": "9:30 NY Open", "start": "06:30", "vs": 2.2, "news": "", "strat": "No SL", "version": "No SL v1.x", "acct": "Paper 2", "paper": true, "inst": "MNQ 12-26", "root": "MNQ", "pv": 2.0, "side": "SHORT", "qty": 1, "stop": 27243.5, "entry": 27241.0, "slip": 2.5, "exit": 27233.0, "xname": "TakeProfit", "xtime": "06:30:20", "tpl": 27233.0, "pts": 8.0, "usd": 16.0, "secs": 18.2, "result": "WIN"}, {"date": "2026-11-18", "dow": "Wed", "time": "15:05:02.173", "session": "18:00 Globex", "start": "15:05", "vs": 2.2, "news": "", "strat": "No SL", "version": "No SL v1.x", "acct": "Paper 1", "paper": true, "inst": "MNQ 12-26", "root": "MNQ", "pv": 2.0, "side": "LONG", "qty": 1, "stop": 27246.75, "entry": 27248.25, "slip": 1.5, "exit": 27256.25, "xname": "TakeProfit", "xtime": "15:05:03", "tpl": 27256.25, "pts": 8.0, "usd": 16.0, "secs": 1.4, "result": "WIN"}, {"date": "2026-11-19", "dow": "Thu", "time": "06:29:57.288", "session": "9:30 NY Open", "start": "06:30", "vs": -2.7, "news": "", "strat": "No SL", "version": "No SL v1.x", "acct": "Paper 2", "paper": true, "inst": "MNQ 12-26", "root": "MNQ", "pv": 2.0, "side": "LONG", "qty": 1, "stop": 27669.5, "entry": 27669.0, "slip": -0.5, "exit": 27677.0, "xname": "TakeProfit", "xtime": "06:30:02", "tpl": 27677.0, "pts": 8.0, "usd": 16.0, "secs": 5.3, "result": "WIN"}, {"date": "2026-11-19", "dow": "Thu", "time": "15:00:02.802", "session": "18:00 Globex", "start": "15:00", "vs": 2.8, "news": "", "strat": "No SL", "version": "No SL v1.x", "acct": "Paper 3", "paper": true, "inst": "MNQ 12-26", "root": "MNQ", "pv": 2.0, "side": "SHORT", "qty": 1, "stop": 26578.0, "entry": 26575.25, "slip": 2.75, "exit": 26567.25, "xname": "TakeProfit", "xtime": "15:00:09", "tpl": 26567.25, "pts": 8.0, "usd": 16.0, "secs": 6.8, "result": "WIN"}, {"date": "2026-11-20", "dow": "Fri", "time": "06:30:00.109", "session": "9:30 NY Open", "start": "06:30", "vs": 0.1, "news": "", "strat": "No SL", "version": "No SL v1.x", "acct": "Paper 2", "paper": true, "inst": "MNQ 12-26", "root": "MNQ", "pv": 2.0, "side": "SHORT", "qty": 1, "stop": 26329.0, "entry": 26327.5, "slip": 1.5, "exit": 26319.5, "xname": "TakeProfit", "xtime": "06:30:00", "tpl": 26319.5, "pts": 8.0, "usd": 16.0, "secs": 0.5, "result": "WIN"}];
+const IMPORT_KEY = "focus_osok_stats_imported_v1__" + "public";
+let DATA = [];
+const BUILT = "2026-11-20 07:55";
+const F = { time:"All", strat:"All", acct:"All", news:"All", from:"", to:"" };
+const SESSION_ORDER = ["8:30 News", "9:30 NY Open", "18:00 Globex"];
+
+const esc = s => String(s == null ? "" : s).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const num = (v, d=2) => { if (v == null) return "-"; let s = Number(v).toFixed(d); return s.indexOf(".") >= 0 ? s.replace(/0+$/,"").replace(/\.$/,"") : s; };
+const money = v => (v > 0 ? "+$" : v < 0 ? "-$" : "$") + Math.abs(v).toLocaleString("en-US", {minimumFractionDigits:2, maximumFractionDigits:2});
+const cls = v => v > 0 ? "pos" : v < 0 ? "neg" : "";
+
+function distinct(key) { return [...new Set(DATA.map(t => t[key]).filter(v => v !== ""))]; }
+
+function chipRow(label, key, values) {
+  const all = ["All", ...values];
+  return `<div class="frow"><span class="lab">${label}</span>` +
+    all.map(v => `<button class="chip ${F[key] === v ? "on" : ""}" data-k="${key}" data-v="${esc(v)}">${esc(v)}</button>`).join("") + `</div>`;
+}
+
+function drawFilters() {
+  const sessions = distinct("session").sort((a, b) => {
+    const ia = SESSION_ORDER.indexOf(a), ib = SESSION_ORDER.indexOf(b);
+    return (ia < 0 ? 99 : ia) - (ib < 0 ? 99 : ib) || a.localeCompare(b); });
+  const strats = ["No SL", "With SL"];
+  const news = distinct("news").sort();
+  const dates = DATA.map(t => t.date).sort();
+  document.getElementById("filters").innerHTML =
+    chipRow("OSOK Time", "time", sessions) + chipRow("Strategy", "strat", strats) + chipRow("Account", "acct", ["Paper", "Live"]) +
+    chipRow("News", "news", news.length ? news : []) +
+    `<div class="frow"><span class="lab">Dates</span><input type="date" id="dfrom" value="${F.from}" min="${dates[0]||""}" max="${dates[dates.length-1]||""}">
+     <span>to</span><input type="date" id="dto" value="${F.to}" min="${dates[0]||""}" max="${dates[dates.length-1]||""}">
+     <button class="chip" id="dclear">All dates</button></div>`;
+  document.querySelectorAll(".chip[data-k]").forEach(b => b.onclick = () => { F[b.dataset.k] = b.dataset.v; drawFilters(); render(); });
+  document.getElementById("dfrom").onchange = e => { F.from = e.target.value; render(); };
+  document.getElementById("dto").onchange = e => { F.to = e.target.value; render(); };
+  document.getElementById("dclear").onclick = () => { F.from = ""; F.to = ""; drawFilters(); render(); };
+}
+
+function pick() {
+  return DATA.filter(t =>
+    (F.time === "All" || t.session === F.time) &&
+    (F.strat === "All" || t.strat === F.strat) &&
+    (F.acct === "All" || (F.acct === "Paper") === t.paper) &&
+    (F.news === "All" || t.news === F.news) &&
+    (!F.from || t.date >= F.from) && (!F.to || t.date <= F.to));
+}
+
+function stats(ts) {
+  const done = ts.filter(t => t.result !== "OPEN"), wins = done.filter(t => t.result === "WIN"), losses = done.filter(t => t.result === "LOSS");
+  const sum = (a, k) => a.reduce((s, t) => s + t[k], 0);
+  const med = a => { if (!a.length) return 0; const s = [...a].sort((x, y) => x - y), m = Math.floor(s.length / 2); return s.length % 2 ? s[m] : (s[m-1] + s[m]) / 2; };
+  let peak = 0, cum = 0, mdd = 0;
+  done.forEach(t => { cum += t.usd; peak = Math.max(peak, cum); mdd = Math.min(mdd, cum - peak); });
+  const gw = sum(wins, "usd"), gl = -sum(losses, "usd");
+  return { n: done.length, open: ts.length - done.length, wins: wins.length, losses: losses.length,
+           winrate: done.length ? 100 * wins.length / done.length : 0, pts: sum(done, "pts"), usd: sum(done, "usd"),
+           avgWin: wins.length ? gw / wins.length : 0, avgLoss: losses.length ? -gl / losses.length : 0,
+           pf: gl > 0 ? gw / gl : null, mdd, slipAvg: done.length ? sum(done, "slip") / done.length : 0,
+           slipMax: done.length ? Math.max(...done.map(t => t.slip)) : 0, secsMed: med(done.map(t => t.secs)),
+           early: done.filter(t => t.vs < 0).length, days: new Set(done.map(t => t.date)).size };
+}
+
+function kpis(s) {
+  const pf = s.n ? (s.pf === null ? (s.losses ? "-" : "no losses") : s.pf.toFixed(2)) : "-";
+  const cards = [
+    ["Trades", s.n, `${s.days} sessions${s.open ? ", " + s.open + " open" : ""}`, ""],
+    ["Win rate", s.n ? s.winrate.toFixed(0) + "%" : "-", `${s.wins} wins / ${s.losses} losses`, ""],
+    ["Net P/L (gross)", money(s.usd), `${num(s.pts)} pts, before commissions`, cls(s.usd)],
+    ["Avg per trade", s.n ? money(s.usd / s.n) : "-", s.n ? `${num(s.pts / s.n)} pts avg` : "", cls(s.usd)],
+    ["Avg win / loss", s.wins ? money(s.avgWin) : "-", s.losses ? "avg loss " + money(s.avgLoss) : "no losses", ""],
+    ["Profit factor", pf, "gross wins / gross losses", ""],
+    ["Max drawdown", money(s.mdd), "on the cumulative curve", cls(s.mdd)],
+    ["Entry slippage", s.n ? num(s.slipAvg) + " pts" : "-", s.n ? `avg, worst ${num(s.slipMax)} pts (+ = against you)` : "", ""],
+    ["Time to exit", s.n ? num(s.secsMed, 1) + " s" : "-", "median, entry fill to exit fill", ""],
+  ];
+  return cards.map(([k, v, m, c]) => `<div class="kpi"><div class="k">${k}</div><div class="v ${c}">${v}</div><div class="m">${m}</div></div>`).join("");
+}
+
+function chart(ts) {
+  const done = ts.filter(t => t.result !== "OPEN");
+  if (!done.length) return `<div class="empty">No closed trades for these filters.</div>`;
+  const W = 900, H = 220, P = 36; let cum = 0; const pts = [0];
+  done.forEach(t => { cum += t.usd; pts.push(cum); });
+  const lo = Math.min(...pts, 0), hi = Math.max(...pts, 1), span = (hi - lo) || 1;
+  const xs = pts.map((_, i) => P + i * (W - 2 * P) / (pts.length - 1)), ys = pts.map(v => H - P - (v - lo) / span * (H - 2 * P));
+  const d = xs.map((x, i) => (i ? "L" : "M") + x.toFixed(1) + "," + ys[i].toFixed(1)).join(" ");
+  const zy = H - P - (0 - lo) / span * (H - 2 * P);
+  const dots = done.map((t, i) => `<circle cx="${xs[i+1].toFixed(1)}" cy="${ys[i+1].toFixed(1)}" r="3.5" fill="${t.usd > 0 ? "var(--green)" : t.usd < 0 ? "var(--red)" : "var(--white)"}"><title>#${i+1} ${t.date} ${t.session}${t.news ? " " + t.news : ""} ${t.side}: ${money(t.usd)} (total ${money(pts[i+1])})</title></circle>`).join("");
+  return `<svg viewBox="0 0 ${W} ${H}" class="chart" role="img" aria-label="Cumulative P/L"><line x1="${P}" y1="${zy.toFixed(1)}" x2="${W-P}" y2="${zy.toFixed(1)}" class="zero"/>
+    <text x="${P}" y="${P-10}" class="axis">${money(hi)}</text><text x="${P}" y="${H-8}" class="axis">${money(lo)}</text><path d="${d}" class="curve"/>${dots}</svg>`;
+}
+
+function breakdown(ts, key, title, label) {
+  const groups = {};
+  ts.filter(t => t.result !== "OPEN").forEach(t => { const k = key === "paper" ? (t.paper ? "Paper" : "Live") : (t[key] || "untagged"); (groups[k] = groups[k] || []).push(t); });
+  const keys = Object.keys(groups).sort();
+  if (!keys.length) return `<h3>${title}</h3><div class="empty">-</div>`;
+  return `<h3>${title}</h3><table><thead><tr><th class="l">${label}</th><th>Trades</th><th>W/L</th><th>Win %</th><th>Pts</th><th>P/L</th><th>Avg slip</th></tr></thead><tbody>` +
+    keys.map(k => { const s = stats(groups[k]);
+      return `<tr><td class="l">${esc(k)}</td><td>${s.n}</td><td>${s.wins}/${s.losses}</td><td>${s.winrate.toFixed(0)}%</td><td>${num(s.pts)}</td><td class="${cls(s.usd)}">${money(s.usd)}</td><td>${num(s.slipAvg)}</td></tr>`; }).join("") +
+    `</tbody></table>`;
+}
+
+function rows(ts) {
+  if (!ts.length) return `<tr><td colspan="15" class="l">No trades for these filters.</td></tr>`;
+  return ts.map((t, i) => {
+    let math = "still open (no exit fill found yet)";
+    if (t.result !== "OPEN") {
+      const [a, b] = t.side === "LONG" ? [t.exit, t.entry] : [t.entry, t.exit];
+      math = `${num(a)} - ${num(b)} = ${num(t.pts)} pts x $${num(t.pv)} x ${t.qty} = ${money(t.usd)} (${t.xname})`;
+      if (t.tpl && Math.abs(t.exit - t.tpl) > 1e-9) math += ` - TP limit ${num(t.tpl)}, filled better`;
+    }
+    return `<tr><td>${i+1}</td><td class="l">${t.date} ${t.dow}</td><td class="l">${esc(t.session)}</td><td class="l">${t.news ? `<span class="tag news">${esc(t.news)}</span>` : ""}</td>
+      <td>${t.time}</td><td class="${t.vs < 0 ? "warn" : ""}">${(t.vs > 0 ? "+" : "") + t.vs.toFixed(1)} s</td><td class="l">${esc(t.version)}</td><td class="l">${t.side}</td>
+      <td>${num(t.stop)}</td><td>${num(t.entry)}</td><td>${num(t.slip)}</td><td>${num(t.exit)}</td><td class="l math">${esc(math)}</td>
+      <td><span class="tag ${t.result}">${t.result}</span>${t.imported ? ' <span class="tag imp">imported</span>' : ""}</td><td class="l">${esc(t.acct)}</td></tr>`; }).join("");
+}
+
+function caveats(ts, s) {
+  const items = [];
+  const nosl = ts.filter(t => t.strat === "No SL" && t.result !== "OPEN");
+  if (nosl.length) items.push(`<b>No SL trades have no stop loss.</b> ${nosl.filter(t => t.result === "LOSS").length ? "" : "None of them has lost yet, but "}one release that fills a side and runs the other way can erase many wins: a 60-pt run against 1 MNQ = 60 x $2 = -$120 = 7.5 typical +8-pt wins (+$16 each). The 11/13 8:30 PPI bar swung about 110 pts in seconds.`);
+  const better = ts.filter(t => t.tpl && t.exit != null && Math.abs(t.exit - t.tpl) > 1e-9);
+  if (better.length) items.push(`<b>Sim fills can be generous.</b> ${better.length} target(s) filled better than their limit because the price was already past it. Live, plan on the TP points; treat the extra as a bonus.`);
+  if (s.n) items.push(`<b>Entries before the start time:</b> ${s.early} of ${s.n} filled before it (yellow 'vs start') - pre-event jitter bigger than the PAD, not the event move itself.`);
+  if (ts.some(t => t.date === "2026-11-08")) items.push(`<b>11/08 both sides filled</b> (No SL v1.0 / V6): the Buy Stop and the Sell Stop both filled within 0.1 s - the old version's OCO did not hold in that spike. Both reached their TP.`);
+  if (ts.some(t => t.pts && Math.abs(t.pts) >= 15.5 && Math.abs(t.pts) <= 16.5)) items.push(`<b>The target was not always 8 pts</b> (e.g. 11/17 18:00 used 16). Compare like with like.`);
+  items.push(`<b>Gross, before commissions</b>, at the instrument's $ per point (MNQ $2).`);
+  items.push(`<b>Sample size:</b> ${s.n} trade(s) over ${s.days} session(s) for these filters - a start, not proof.`);
+  items.push(`<b>News tags</b> come from news_events.txt (one line per release, e.g. 2026-12-10 CPI) and only mark 8:30 News trades. Add each release as it happens.`);
+  return items.map(x => `<li>${x}</li>`).join("");
+}
+
+/*CSV-BEGIN*/
+const CSV_COLS = ["date","dow","time","session","start","vs","news","strat","version","acct","paper","inst","root","pv","side","qty",
+  "stop","entry","slip","exit","xname","xtime","tpl","pts","usd","secs","result","math"];
+const CSV_NUM = new Set(["vs","pv","qty","stop","entry","slip","exit","tpl","pts","usd","secs"]);
+function mathOf(t) {
+  if (t.result === "OPEN" || t.exit == null) return "open";
+  const a = t.side === "LONG" ? t.exit : t.entry, b = t.side === "LONG" ? t.entry : t.exit;
+  return `${a} - ${b} = ${t.pts} pts x $${t.pv} x ${t.qty} = ${t.usd}`;
+}
+function csvCell(v) { const s = v == null ? "" : String(v); return /[",\n\r]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; }
+function toCsv(rows) {
+  return [CSV_COLS.join(",")].concat(rows.map(t => CSV_COLS.map(c => csvCell(c === "math" ? mathOf(t) : t[c])).join(","))).join("\r\n") + "\r\n";
+}
+function parseCsvText(text) {
+  const out = []; let row = [], cell = "", q = false;
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (q) { if (ch === '"') { if (text[i+1] === '"') { cell += '"'; i++; } else q = false; } else cell += ch; }
+    else if (ch === '"') q = true;
+    else if (ch === ",") { row.push(cell); cell = ""; }
+    else if (ch === "\n" || ch === "\r") { if (ch === "\r" && text[i+1] === "\n") i++; row.push(cell); cell = ""; if (row.some(c => c !== "")) out.push(row); row = []; }
+    else cell += ch;
+  }
+  row.push(cell); if (row.some(c => c !== "")) out.push(row);
+  return out;
+}
+// CSV text -> trades (same columns as the export). Bad rows are skipped and counted.
+function fromCsv(text) {
+  const rows = parseCsvText(text.replace(/^\uFEFF/, ""));
+  if (!rows.length) return { trades: [], skipped: 0, error: "empty file" };
+  const head = rows[0].map(h => h.trim());
+  const need = ["date","time","side","entry"];
+  const miss = need.filter(n => head.indexOf(n) < 0);
+  if (miss.length) return { trades: [], skipped: 0, error: "missing columns: " + miss.join(", ") };
+  const trades = []; let skipped = 0;
+  rows.slice(1).forEach(r => {
+    const t = {};
+    head.forEach((h, i) => { if (CSV_COLS.indexOf(h) >= 0 && h !== "math") t[h] = r[i] == null ? "" : r[i]; });
+    CSV_NUM.forEach(k => { t[k] = (t[k] === "" || t[k] == null) ? null : Number(t[k]); });
+    t.paper = String(t.paper).toLowerCase() === "true" || /^(sim|demo|playback|paper)/i.test(t.acct || "");
+    t.side = String(t.side || "").toUpperCase();
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(t.date || "") || (t.side !== "LONG" && t.side !== "SHORT") || t.entry == null || isNaN(t.entry)) { skipped++; return; }
+    t.qty = t.qty || 1; t.pv = t.pv == null ? 2 : t.pv; t.slip = t.slip || 0; t.vs = t.vs || 0;
+    if (t.exit != null && !isNaN(t.exit)) {
+      t.pts = t.pts != null ? t.pts : Math.round(((t.side === "LONG" ? t.exit - t.entry : t.entry - t.exit)) * 100) / 100;
+      t.usd = t.usd != null ? t.usd : Math.round(t.pts * t.pv * t.qty * 100) / 100;
+      t.result = t.result || (t.pts > 0 ? "WIN" : t.pts < 0 ? "LOSS" : "BE");
+    } else { t.result = "OPEN"; t.pts = null; t.usd = null; }
+    t.session = t.session || "Other"; t.strat = t.strat || "No SL"; t.version = t.version || "imported"; t.news = t.news || "";
+    t.dow = t.dow || ""; t.secs = t.secs || 0; t.imported = true;
+    trades.push(t);
+  });
+  return { trades, skipped, error: null };
+}
+function tradeKey(t) { return [t.date, String(t.time).slice(0, 8), t.acct, t.side, Number(t.entry).toFixed(2)].join("|"); }
+// merge: rows already in the log data (same date / time to the second / account / side / entry) are skipped
+function mergeTrades(base, extra) {
+  const seen = new Set(base.map(tradeKey)); const add = [];
+  extra.forEach(t => { const k = tradeKey(t); if (!seen.has(k)) { seen.add(k); add.push(t); } });
+  return { merged: base.concat(add).sort((a, b) => (a.date + a.time).localeCompare(b.date + b.time)), added: add.length, dup: extra.length - add.length };
+}
+/*CSV-END*/
+
+function stamp() { const d = new Date(), p = n => String(n).padStart(2, "0");
+  return `${d.getFullYear()}${p(d.getMonth()+1)}${p(d.getDate())}_${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}`; }
+function loadImported() { try { return JSON.parse(localStorage.getItem(IMPORT_KEY) || "[]"); } catch (e) { return []; } }
+function saveImported(rows) { try { localStorage.setItem(IMPORT_KEY, JSON.stringify(rows)); } catch (e) {} }
+function rebuildData() {
+  const imp = loadImported(); const m = mergeTrades(LOGDATA, imp); DATA = m.merged;
+  document.getElementById("impNote").textContent = imp.length ? `${m.added} imported trade(s) included (marked imported)` : "";
+}
+function wireTools() {
+  document.getElementById("bPdf").onclick = () => { const old = document.title; document.title = "FOCUS_OSOK_Stats_" + stamp(); window.print(); setTimeout(() => document.title = old, 1000); };
+  document.getElementById("bCsv").onclick = () => {
+    const blob = new Blob(["\uFEFF" + toCsv(pick())], { type: "text/csv;charset=utf-8" });
+    const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = "FOCUS_OSOK_Stats_Trades_" + stamp() + ".csv";
+    document.body.appendChild(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 500);
+  };
+  document.getElementById("bImp").onclick = () => document.getElementById("fImp").click();
+  document.getElementById("fImp").onchange = e => {
+    const f = e.target.files[0]; if (!f) return;
+    const rd = new FileReader();
+    rd.onload = () => {
+      const r = fromCsv(String(rd.result));
+      if (r.error) { alert("CSV import: " + r.error); return; }
+      const m = mergeTrades(LOGDATA.concat(loadImported()), r.trades);
+      const keep = loadImported().concat(r.trades.filter(t => !LOGDATA.concat(loadImported()).some(x => tradeKey(x) === tradeKey(t))));
+      saveImported(keep); rebuildData(); drawFilters(); render();
+      alert(`CSV import: ${m.added} trade(s) added, ${m.dup} already there, ${r.skipped} row(s) skipped (bad date / side / entry).`);
+      e.target.value = "";
+    };
+    rd.readAsText(f);
+  };
+  document.getElementById("bClr").onclick = () => {
+    const n = loadImported().length; if (!n) { alert("No imported trades in this browser."); return; }
+    if (!confirm(`Remove the ${n} imported trade(s) from this browser? The log trades stay.`)) return;
+    saveImported([]); rebuildData(); drawFilters(); render();
+  };
+}
+
+function render() {
+  const ts = pick(), s = stats(ts);
+  const f = [F.time, F.strat, F.acct, F.news].map((v, i) => v === "All" ? ["all times", "all strategies", "paper + live", "all news"][i] : v);
+  const dates = ts.map(t => t.date).sort();
+  document.getElementById("subtitle").textContent = `Jachbit 2026 · ${BUILT} · ${s.n} trades · OSOK Stats · ${f.join(" · ")} · ${F.from || dates[0] || "-"} to ${F.to || dates[dates.length-1] || "-"}`;
+  document.getElementById("kpis").innerHTML = kpis(s);
+  document.getElementById("chart").innerHTML = chart(ts);
+  document.getElementById("bySession").innerHTML = breakdown(ts, "session", "By OSOK Time", "OSOK Time");
+  document.getElementById("byNews").innerHTML = breakdown(ts.filter(t => t.session === "8:30 News"), "news", "8:30 News by release", "Release");
+  document.getElementById("byStrat").innerHTML = breakdown(ts, "strat", "By strategy", "Strategy");
+  document.getElementById("bySide").innerHTML = breakdown(ts, "side", "By side", "Side");
+  document.getElementById("byAcct").innerHTML = breakdown(ts, "paper", "Paper vs Live", "Account");
+  document.getElementById("byVer").innerHTML = breakdown(ts, "version", "By version", "Version");
+  document.getElementById("rows").innerHTML = rows(ts);
+  document.getElementById("caveats").innerHTML = caveats(ts, s);
+}
+
+// filters can also come from the link, e.g. OSOK_Stats.html#time=8:30 News&strat=No SL&acct=Live (handy as bookmarks)
+try {
+  decodeURIComponent(location.hash.slice(1)).split("&").forEach(p => { const [k, v] = p.split("="); if (k in F && v != null) F[k] = v; });
+} catch (e) {}
+
+rebuildData();
+wireTools();
+drawFilters();
+render();
+</script>
+</body></html>

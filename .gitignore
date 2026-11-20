@@ -1,0 +1,24 @@
+# F.O.C.U.S. OSOK Statistics - never upload these
+# your copy with the real account names + the alias list
+local/
+# timestamped backups
+backups/
+*.bak
+*_backup_*
+*_20[0-9][0-9][0-1][0-9][0-3][0-9]_*.*
+# NinjaTrader logs / exports and anything with credentials
+*.log
+log.*.txt
+.env
+*.token
+schwab_token.json
+tastytrade_token.json
+# exports you download from the page
+FOCUS_OSOK_Stats_*.csv
+FOCUS_OSOK_Stats_*.pdf
+# Python / OS junk
+__pycache__/
+*.pyc
+Thumbs.db
+desktop.ini
+.DS_Store

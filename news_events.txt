@@ -1,0 +1,4 @@
+# F.O.C.U.S. OSOK - news releases for the OSOK Stats page (8:30 News trades on that date get the tag)
+# One line per release:  YYYY-MM-DD NAME     e.g.  2026-12-10 CPI
+# Add each release as it happens; a wrong date puts trades under the wrong release.
+2026-11-13 PPI
