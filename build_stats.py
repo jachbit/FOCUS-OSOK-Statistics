@@ -319,6 +319,7 @@ PAGE = r"""<!doctype html>
     tbody tr:nth-child(even) { background:#fafafa !important; }
     .scroll { overflow:visible; border:none; } table { font-size:9px; } tr { page-break-inside:avoid; }
     .tag { border:1px solid #888; background:#fff !important; color:#000 !important; }
+    .empty { background:#fff !important; color:#000 !important; border:1px dashed #999 !important; padding:8px; }
     li { color:#000; }
     footer { color:#000; border-top:1px solid #999; } footer .verse { color:#000 !important; }
     * { -webkit-print-color-adjust:exact; print-color-adjust:exact; }
