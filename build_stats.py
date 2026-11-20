@@ -281,7 +281,8 @@ PAGE = r"""<!doctype html>
   <div id="chart"></div>
   <div class="grid2"><div id="bySession"></div><div id="byNews"></div></div>
   <div class="grid2"><div id="byStrat"></div><div id="bySide"></div></div>
-  <div class="grid2"><div id="byAcct"></div><div id="byVer"></div></div>
+  <div class="grid2"><div id="byAcct"></div><div id="byAcctName"></div></div>
+  <div class="grid2"><div id="byVer"></div><div></div></div>
   <h3>Every trade, with the math</h3>
   <div class="scroll"><table><thead><tr><th>#</th><th class="l">Date</th><th class="l">OSOK Time</th><th class="l">News</th><th>Entry fill (PT)</th>
     <th>vs start</th><th class="l">Strategy</th><th class="l">Side</th><th>Stop</th><th>Fill</th><th>Slip</th><th>Exit</th>
@@ -322,8 +323,10 @@ function drawFilters() {
   const strats = ["No SL", "With SL"];
   const news = distinct("news").sort();
   const dates = DATA.map(t => t.date).sort();
+  // one chip per account after Paper / Live: paper accounts first, then live, natural order (Paper 2 before Paper 10)
+  const accts = acctList(DATA);
   document.getElementById("filters").innerHTML =
-    chipRow("OSOK Time", "time", sessions) + chipRow("Strategy", "strat", strats) + chipRow("Account", "acct", ["Paper", "Live"]) +
+    chipRow("OSOK Time", "time", sessions) + chipRow("Strategy", "strat", strats) + chipRow("Account", "acct", ["Paper", "Live", ...accts]) +
     chipRow("News", "news", news.length ? news : []) +
     `<div class="frow"><span class="lab">Dates</span><input type="date" id="dfrom" value="${F.from}" min="${dates[0]||""}" max="${dates[dates.length-1]||""}">
      <span>to</span><input type="date" id="dto" value="${F.to}" min="${dates[0]||""}" max="${dates[dates.length-1]||""}">
@@ -334,11 +337,23 @@ function drawFilters() {
   document.getElementById("dclear").onclick = () => { F.from = ""; F.to = ""; drawFilters(); render(); };
 }
 
+function acctList(ts) {
+  const paperOf = {}; ts.forEach(t => { paperOf[t.acct] = t.paper; });
+  return Object.keys(paperOf).filter(a => a !== "").sort((a, b) =>
+    (paperOf[a] === paperOf[b] ? 0 : paperOf[a] ? -1 : 1) || a.localeCompare(b, undefined, { numeric: true, sensitivity: "base" }));
+}
+function acctMatch(t) {
+  if (F.acct === "All") return true;
+  if (F.acct === "Paper") return t.paper;
+  if (F.acct === "Live") return !t.paper;
+  return t.acct === F.acct;
+}
+
 function pick() {
   return DATA.filter(t =>
     (F.time === "All" || t.session === F.time) &&
     (F.strat === "All" || t.strat === F.strat) &&
-    (F.acct === "All" || (F.acct === "Paper") === t.paper) &&
+    acctMatch(t) &&
     (F.news === "All" || t.news === F.news) &&
     (!F.from || t.date >= F.from) && (!F.to || t.date <= F.to));
 }
@@ -391,7 +406,7 @@ function chart(ts) {
 function breakdown(ts, key, title, label) {
   const groups = {};
   ts.filter(t => t.result !== "OPEN").forEach(t => { const k = key === "paper" ? (t.paper ? "Paper" : "Live") : (t[key] || "untagged"); (groups[k] = groups[k] || []).push(t); });
-  const keys = Object.keys(groups).sort();
+  const keys = key === "acct" ? acctList(ts.filter(t => t.result !== "OPEN")) : Object.keys(groups).sort();
   if (!keys.length) return `<h3>${title}</h3><div class="empty">-</div>`;
   return `<h3>${title}</h3><table><thead><tr><th class="l">${label}</th><th>Trades</th><th>W/L</th><th>Win %</th><th>Pts</th><th>P/L</th><th>Avg slip</th></tr></thead><tbody>` +
     keys.map(k => { const s = stats(groups[k]);
@@ -541,6 +556,7 @@ function render() {
   document.getElementById("byStrat").innerHTML = breakdown(ts, "strat", "By strategy", "Strategy");
   document.getElementById("bySide").innerHTML = breakdown(ts, "side", "By side", "Side");
   document.getElementById("byAcct").innerHTML = breakdown(ts, "paper", "Paper vs Live", "Account");
+  document.getElementById("byAcctName").innerHTML = breakdown(ts, "acct", "By account", "Account");
   document.getElementById("byVer").innerHTML = breakdown(ts, "version", "By version", "Version");
   document.getElementById("rows").innerHTML = rows(ts);
   document.getElementById("caveats").innerHTML = caveats(ts, s);
