@@ -655,9 +655,20 @@ def aliases_for(trades):
         al = {}
     for t in trades:
         if t["acct"] not in al:
+            # first free number, so a renamed alias (e.g. Paper 2 -> Sim Eval) never makes a new account reuse a name
             kind = "Paper" if t["paper"] else "Live"
-            n = sum(1 for v in al.values() if v.startswith(kind + " ")) + 1
+            taken = {v.strip().lower() for v in al.values()}
+            n = 1
+            while "{} {}".format(kind, n).lower() in taken:
+                n += 1
             al[t["acct"]] = "{} {}".format(kind, n)
+    seen = {}
+    for real, alias in al.items():
+        seen.setdefault(alias.strip().lower(), []).append(alias)
+    for k, v in seen.items():
+        if len(v) > 1:
+            print("  [warning] {} accounts share the name '{}' in local\\account_aliases.json - they show as one "
+                  "account on the page; give each its own name".format(len(v), v[0]))
     with open(ALIAS_FILE, "w", encoding="utf-8") as fh:
         json.dump(al, fh, indent=1)
     return al
