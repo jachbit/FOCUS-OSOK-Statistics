@@ -45,12 +45,18 @@ STRATS = {  # strategy name prefix -> (Strategy filter value, version label)
     "AutoStopOrderOCOGV7_WithSL":    ("With SL", "With SL v1.0 (V7)"),
     "OSOK_AutoStopOrder_OCO_WithSL": ("With SL", "With SL v1.x"),
 }
+# OSOK ATM Level Entry (the floating window): its BRACKET entries are 'Entry' orders whose OCO starts with OSOKATM_
+# (manual Chart Trader trades are also named 'Entry' but have no such OCO, so they are never counted).
+ATM_OCO = "OSOKATM_"
+ATM_STRAT = ("ATM Entry", "ATM Level Entry")
+ATM_EXIT_RE = re.compile(r"^(Target[1-3]|Stop[1-3]?|StopMkt|Close)$")
 # start time (PC / Pacific) -> OSOK Time
 SESSIONS = [("05:30", "8:30 News"), ("06:30", "9:30 NY Open"), ("15:00", "18:00 Globex"), ("15:05", "18:00 Globex")]
 
 ORDER_RE = re.compile(r"Order='[^/]+/([^']+)' Name='([^']+)' New state='Filled' Instrument='([^']+)' Action='([^']+)' "
                       r"Limit price=([\d.]+) Stop price=([\d.]+) Quantity=(\d+) Type='([^']+)'.*?Filled=(\d+) Fill price=([\d.]+)")
 ENABLE_RE = re.compile(r"Enabling NinjaScript strategy '([^'/]+)/")
+OCO_RE = re.compile(r"Oco='([^']*)'")
 
 
 def is_paper(acct):
@@ -100,11 +106,14 @@ def parse_logs():
                 if not m:
                     continue
                 acct, name, inst, action, lmt, stp, qty, otype, filled, px = m.groups()
-                if name not in ENTRY_NAMES and name not in EXIT_NAMES:
+                mo = OCO_RE.search(line)
+                oco = mo.group(1) if mo else ""
+                atm_entry = name == "Entry" and oco.startswith(ATM_OCO)
+                if name not in ENTRY_NAMES and name not in EXIT_NAMES and not atm_entry and not ATM_EXIT_RE.match(name):
                     continue
                 ts = datetime.strptime(line[:23], "%Y-%m-%d %H:%M:%S:%f")
                 events.append(dict(ts=ts, acct=acct, name=name, inst=inst, action=action, lmt=float(lmt),
-                                   stp=float(stp), qty=int(filled), px=float(px), strat=strat or ""))
+                                   stp=float(stp), qty=int(filled), px=float(px), strat=strat or "", atm=atm_entry))
     events.sort(key=lambda e: e["ts"])
     return events
 
@@ -123,27 +132,43 @@ def session_for(ts):
     mins = int(round((ts.hour * 60 + ts.minute + ts.second / 60.0) / 5.0)) * 5
     start = ts.replace(hour=(mins // 60) % 24, minute=mins % 60, second=0, microsecond=0)
     hhmm = start.strftime("%H:%M")
-    return hhmm, "Other " + hhmm, start
+    return hhmm, "Other times", start   # one chip / row for every other start time; the row keeps its own time
 
 
 def build_trades(events, news):
     trades, used = [], set()
     for i, e in enumerate(events):
-        if e["name"] not in ENTRY_NAMES:
+        if e["atm"]:
+            st = ATM_STRAT
+            is_long = e["action"] == "Buy"
+            exit_names = None                      # ATM: Target1-3 / Stop / Stop1-3 / StopMkt / Close
+        elif e["name"] in ENTRY_NAMES:
+            st = strat_of(e["strat"])
+            if st is None:
+                continue
+            is_long = e["name"] == "BuyStop"
+            exit_names = EXIT_NAMES
+        else:
             continue
-        st = strat_of(e["strat"])
-        if st is None:
-            continue
-        is_long = e["name"] == "BuyStop"
-        exit_action = "Sell" if is_long else "Buy to cover"
-        x = None
+        exit_actions = {"Sell"} if is_long else {"Buy to cover", "Buy"}
+        xs, got = [], 0
         for j in range(i + 1, len(events)):
             c = events[j]
             if (c["ts"] - e["ts"]).total_seconds() > 8 * 3600:
                 break
-            if j in used or c["name"] not in EXIT_NAMES or c["acct"] != e["acct"] or c["inst"] != e["inst"] or c["action"] != exit_action:
+            if j in used or c["acct"] != e["acct"] or c["inst"] != e["inst"] or c["action"] not in exit_actions:
                 continue
-            x = c; used.add(j); break
+            if (c["name"] not in exit_names) if exit_names is not None else (not ATM_EXIT_RE.match(c["name"])):
+                continue
+            xs.append(c); used.add(j); got += c["qty"]
+            if exit_names is not None or got >= e["qty"]:
+                break
+        x = None
+        if xs and (exit_names is not None or got >= e["qty"]):
+            q = sum(c["qty"] for c in xs) or 1
+            x = dict(px=round(sum(c["px"] * c["qty"] for c in xs) / q, 4), name="+".join(c["name"] for c in xs),
+                     ts=xs[-1]["ts"], lmt=xs[0]["lmt"] if len(xs) == 1 else 0.0,
+                     tp=len(xs) == 1 and (xs[0]["name"] == "TakeProfit" or xs[0]["name"].startswith("Target")))
         root = e["inst"].split(" ")[0].upper()
         pv = POINT_VALUE.get(root, 0.0)
         hhmm, sess, start = session_for(e["ts"])
@@ -158,7 +183,7 @@ def build_trades(events, news):
         if x:
             pts = (x["px"] - e["px"]) if is_long else (e["px"] - x["px"])
             t.update(exit=x["px"], xname=x["name"], xtime=x["ts"].strftime("%H:%M:%S"),
-                     tpl=x["lmt"] if x["name"] == "TakeProfit" else None,
+                     tpl=x["lmt"] if x.get("tp", x["name"] == "TakeProfit") else None,
                      pts=round(pts, 2), usd=round(pts * pv * e["qty"], 2),
                      secs=round((x["ts"] - e["ts"]).total_seconds(), 1),
                      result="WIN" if pts > 0 else ("LOSS" if pts < 0 else "BE"))
@@ -273,7 +298,8 @@ PAGE = r"""<!doctype html>
     <span class="inote" id="impNote"></span>
   </div>
   <div class="mandate">One-Shot-One-Kill straddle: a few seconds before the start time a Buy Stop and a Sell Stop go in around the price (PAD),
-  linked OCO; the first move fills one side and the exit orders go in (No SL: Take Profit only; With SL: Take Profit + Stop Loss).
+  linked OCO; the first move fills one side and the exit orders go in (No SL: Take Profit only; With SL: Take Profit + Stop Loss;
+  ATM Entry: the OSOK ATM window's BRACKET trades - its ATM template or TP1-3 / SL1-3, several exits shown as an average exit price).
   Times are the PC's (Pacific). Built from NinjaTrader's own log files - double-click <b>make_stats.bat</b> after each session.
   Click the filters above: every number below recalculates.</div>
   <div class="kpis" id="kpis"></div>
@@ -320,7 +346,7 @@ function drawFilters() {
   const sessions = distinct("session").sort((a, b) => {
     const ia = SESSION_ORDER.indexOf(a), ib = SESSION_ORDER.indexOf(b);
     return (ia < 0 ? 99 : ia) - (ib < 0 ? 99 : ib) || a.localeCompare(b); });
-  const strats = ["No SL", "With SL"];
+  const strats = ["No SL", "With SL", "ATM Entry"];
   const news = distinct("news").sort();
   const dates = DATA.map(t => t.date).sort();
   // one chip per account after Paper / Live: paper accounts first, then live, natural order (Paper 2 before Paper 10)
@@ -438,6 +464,7 @@ function caveats(ts, s) {
   if (s.n) items.push(`<b>Entries before the start time:</b> ${s.early} of ${s.n} filled before it (yellow 'vs start') - pre-event jitter bigger than the PAD, not the event move itself.`);
   if (ts.some(t => t.date === "2026-11-08")) items.push(`<b>11/08 both sides filled</b> (No SL v1.0 / V6): the Buy Stop and the Sell Stop both filled within 0.1 s - the old version's OCO did not hold in that spike. Both reached their TP.`);
   if (ts.some(t => t.pts && Math.abs(t.pts) >= 15.5 && Math.abs(t.pts) <= 16.5)) items.push(`<b>The target was not always 8 pts</b> (e.g. 11/17 18:00 used 16). Compare like with like.`);
+  if (ts.some(t => t.strat === "ATM Entry")) items.push(`<b>ATM Entry</b> = trades from the OSOK ATM Level Entry window in BRACKET mode (Timer, Pick, typed level or MKT). Its LONG / SHORT single entries and manual Chart Trader trades are not counted: they are not OSOK straddles. A trade closed in parts (TP1-3 / SL1-3 / FLATTEN) shows the average exit price of all its contracts.`);
   items.push(`<b>Gross, before commissions</b>, at the instrument's $ per point (MNQ $2).`);
   items.push(`<b>Sample size:</b> ${s.n} trade(s) over ${s.days} session(s) for these filters - a start, not proof.`);
   items.push(`<b>News tags</b> come from news_events.txt (one line per release, e.g. 2026-12-10 CPI) and only mark 8:30 News trades. Add each release as it happens.`);
@@ -625,8 +652,9 @@ def build():
     closed = [t for t in trades if t["result"] != "OPEN"]
     print("Local page :", LOCAL_OUT)
     print("GitHub page:", DOCS_OUT, "(masked)" if not leaked else "!!! REAL ACCOUNT NAMES FOUND: " + ", ".join(sorted(set(leaked))))
-    print("Trades: {} ({} closed) | No SL {} | With SL {} | paper {} | live {}".format(
+    print("Trades: {} ({} closed) | No SL {} | With SL {} | ATM Entry {} | paper {} | live {}".format(
         len(trades), len(closed), sum(t["strat"] == "No SL" for t in trades), sum(t["strat"] == "With SL" for t in trades),
+        sum(t["strat"] == "ATM Entry" for t in trades),
         sum(t["paper"] for t in trades), sum(not t["paper"] for t in trades)))
     for sess in ("8:30 News", "9:30 NY Open", "18:00 Globex"):
         g = [t for t in closed if t["session"] == sess]
