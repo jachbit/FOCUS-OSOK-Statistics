@@ -10,6 +10,6 @@ copy "news_events.txt"   "backups\news_events_%TS%.txt" >nul && echo   [OK] news
 copy "osok_times.txt"    "backups\osok_times_%TS%.txt" >nul && echo   [OK] osok_times.txt
 copy "README.md"         "backups\README_%TS%.md" >nul && echo   [OK] README.md
 copy ".gitignore"        "backups\gitignore_%TS%.txt" >nul && echo   [OK] .gitignore
-if exist "local\account_aliases.json" copy "local\account_aliases.json" "backups\account_aliases_%TS%.json" >nul && echo   [OK] local\account_aliases.json
+if exist "local\accounts.txt" copy "local\accounts.txt" "backups\accounts_%TS%.txt" >nul && echo   [OK] local\accounts.txt
 echo.
 echo Backup done: backups\*_%TS%.*

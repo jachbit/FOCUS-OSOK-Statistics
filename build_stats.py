@@ -21,8 +21,10 @@ Writes TWO copies:
   local\OSOK_Stats.html  - your copy, real account names (never uploaded - local\ is in .gitignore)
   docs\index.html        - the GitHub Pages copy, account names masked (Paper 1, Paper 2, Live 1 ...)
   docs\trades.json       - the masked trade data
-The alias list (real name -> Paper n / Live n) is kept in local\account_aliases.json so an account
-always gets the same alias.
+The account list is local\accounts.txt (never uploaded), one line per account:
+  real account name = public name = paper / live
+Edit the public name to rename an account on the GitHub copy; the last part forces Paper or Live (otherwise a name
+starting with Sim / Demo / Playback is Paper, anything else Live). A new account that trades is added by itself.
 
 The page also has PDF (prints the filtered view in the ink-saving PDF style), CSV export (the filtered
 trades) and CSV import (merge trades from a CSV in the same format; kept in that browser, Clear imported).
@@ -37,7 +39,17 @@ LOG_DIR = os.path.join(os.path.expanduser("~"), "Documents", "NinjaTrader 8", "l
 LOCAL_OUT = os.path.join(HERE, "local", "OSOK_Stats.html")
 DOCS_OUT = os.path.join(HERE, "docs", "index.html")
 DOCS_JSON = os.path.join(HERE, "docs", "trades.json")
-ALIAS_FILE = os.path.join(HERE, "local", "account_aliases.json")
+ACCOUNTS_FILE = os.path.join(HERE, "local", "accounts.txt")
+OLD_ALIAS_FILE = os.path.join(HERE, "local", "account_aliases.json")   # before 2026-11-20: moved into accounts.txt once
+ACCOUNTS_HEADER = (
+    "# F.O.C.U.S. OSOK Statistics - your accounts (this file stays on your PC; local\\ is never uploaded)\n"
+    "# One line per account:   real account name = public name = paper / live\n"
+    "#   public name  = what the GitHub page shows instead of the real name - change it to rename the account\n"
+    "#                  (never put any part of the real name in it - the build stops if you do)\n"
+    "#   paper / live = forces the account type; leave it off to use the name rule\n"
+    "#                  (Sim / Demo / Playback at the start = paper, anything else = live)\n"
+    "# Add a line for a new account any time; an account that trades before it is listed is added by itself.\n"
+    "# Run make_stats.bat after a change.\n")
 NEWS_FILE = os.path.join(HERE, "news_events.txt")
 TIMES_FILE = os.path.join(HERE, "osok_times.txt")
 
@@ -647,32 +659,77 @@ render();
 </body></html>"""
 
 
+def parse_account_line(line):
+    """'real = public = paper' -> (real, public, 'paper' / 'live' / None); None for a bad line"""
+    parts = [p.strip() for p in line.split("=")]
+    if len(parts) < 2:
+        return None
+    kind = None
+    if len(parts) >= 3 and parts[-1].lower() in ("paper", "live"):
+        kind = parts[-1].lower()
+        parts = parts[:-1]
+    real, public = "=".join(parts[:-1]).strip(), parts[-1]
+    if not real or not public:
+        return None
+    return real, public, kind
+
+
+def load_accounts():
+    """local\\accounts.txt -> (aliases {real: public}, kinds {real: 'paper' / 'live'})"""
+    if not os.path.exists(ACCOUNTS_FILE):
+        old = {}
+        try:
+            with open(OLD_ALIAS_FILE, encoding="utf-8") as fh:
+                old = json.load(fh)
+        except Exception:
+            pass
+        with open(ACCOUNTS_FILE, "w", encoding="utf-8") as fh:
+            fh.write(ACCOUNTS_HEADER)
+            for real, public in old.items():
+                fh.write("{} = {} = {}\n".format(real, public, "paper" if is_paper(real) else "live"))
+    al, kinds = {}, {}
+    with open(ACCOUNTS_FILE, encoding="utf-8-sig") as fh:
+        for n, line in enumerate(fh, 1):
+            line = line.strip()
+            if not line or line.startswith("#"):
+                continue
+            p = parse_account_line(line)
+            if p is None:
+                print("  [skipped] accounts.txt line {} - use: real account name = public name = paper / live".format(n))
+                continue
+            al[p[0]] = p[1]
+            if p[2]:
+                kinds[p[0]] = p[2]
+    return al, kinds
+
+
 def aliases_for(trades):
-    """real account name -> Paper n / Live n, kept in local\\account_aliases.json so it never changes"""
-    try:
-        with open(ALIAS_FILE, encoding="utf-8") as fh:
-            al = json.load(fh)
-    except Exception:
-        al = {}
+    """real account name -> public name from local\\accounts.txt; a new account gets the first free Paper n / Live n
+    (so a renamed name never makes a new account reuse one) and is added to the file"""
+    al, kinds = load_accounts()
+    added = []
     for t in trades:
         if t["acct"] not in al:
-            # first free number, so a renamed alias (e.g. Paper 2 -> Sim Eval) never makes a new account reuse a name
             kind = "Paper" if t["paper"] else "Live"
             taken = {v.strip().lower() for v in al.values()}
             n = 1
             while "{} {}".format(kind, n).lower() in taken:
                 n += 1
             al[t["acct"]] = "{} {}".format(kind, n)
+            added.append(t["acct"])
+    if added:
+        with open(ACCOUNTS_FILE, "a", encoding="utf-8") as fh:
+            for real in added:
+                fh.write("{} = {} = {}\n".format(real, al[real], "paper" if is_paper(real) else "live"))
+        print("  [added to accounts.txt] {} new account(s): {}".format(len(added), ", ".join(al[r] for r in added)))
     seen = {}
     for real, alias in al.items():
         seen.setdefault(alias.strip().lower(), []).append(alias)
     for k, v in seen.items():
         if len(v) > 1:
-            print("  [warning] {} accounts share the name '{}' in local\\account_aliases.json - they show as one "
+            print("  [warning] {} accounts share the name '{}' in local\\accounts.txt - they show as one "
                   "account on the page; give each its own name".format(len(v), v[0]))
-    with open(ALIAS_FILE, "w", encoding="utf-8") as fh:
-        json.dump(al, fh, indent=1)
-    return al
+    return al, kinds
 
 
 def write_page(path, trades, built, copynote, copykey):
@@ -692,11 +749,16 @@ def build():
     trades = build_trades(parse_logs(), news)
     built = datetime.now().strftime("%Y-%m-%d %H:%M")
 
+    # account list: public names + forced Paper / Live (local\\accounts.txt)
+    al, kinds = aliases_for(trades)
+    for tr in trades:
+        if tr["acct"] in kinds:
+            tr["paper"] = kinds[tr["acct"]] == "paper"
+
     # 1. local copy - real account names
     write_page(LOCAL_OUT, trades, built, "local copy (real account names)", "local")
 
     # 2. GitHub copy - account names masked
-    al = aliases_for(trades)
     masked = [dict(t, acct=al[t["acct"]]) for t in trades]
     write_page(DOCS_OUT, masked, built, "", "public")
     with open(DOCS_JSON, "w", encoding="utf-8") as fh:

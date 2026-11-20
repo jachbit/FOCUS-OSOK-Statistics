@@ -45,6 +45,26 @@ The data comes from NinjaTrader's own log files (`Documents\NinjaTrader 8\log\lo
 
 Exits are matched on the same account and instrument. Manual Chart Trader trades are never counted.
 
+### Accounts (`local\accounts.txt`)
+
+Your account list stays on your PC (`local\` is never uploaded), one line per account:
+
+```
+# real account name = public name = paper / live
+SimMyTest = Paper 4 = paper
+SimEval_0000 = Eval 1 = paper
+123456 = Live 1 = live
+```
+
+- **Rename** an account on the public page: change the public name, run `make_stats.bat`, push `docs/`.
+  The public name must not contain any part of the real name - the build stops if it does.
+- **Paper or Live:** the last part forces the type. Without it, a name starting with Sim / Demo / Playback
+  is Paper and anything else is Live.
+- **Add** an account by adding a line. An account that trades before it is listed is added by itself as the
+  first free *Paper n* / *Live n*.
+- Two accounts with the same public name are merged on the page; the build warns about it.
+- The public page can't rename accounts itself: that would need the real names online.
+
 ### OSOK times (`osok_times.txt`)
 
 The OSOK time of a trade comes from its entry fill time in the log (the PC's clock - the Start Time you
