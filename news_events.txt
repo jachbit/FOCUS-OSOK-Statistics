@@ -1,4 +1,6 @@
-# F.O.C.U.S. OSOK - news releases for the OSOK Stats page (8:30 News trades on that date get the tag)
-# One line per release:  YYYY-MM-DD NAME     e.g.  2026-12-10 CPI
+# F.O.C.U.S. OSOK Statistics - news releases (that date's trades at the News OSOK times get the tag)
+# One line per release:  YYYY-MM-DD NAME            e.g.  2026-12-10 CPI
+# Only one OSOK time that day:  YYYY-MM-DD HH:MM NAME   e.g.  2026-12-01 07:00 ISM   (time as in osok_times.txt)
+# "News OSOK times" = the names in osok_times.txt that contain the word News (8:30 News ...).
 # Add each release as it happens; a wrong date puts trades under the wrong release.
 2026-11-13 PPI

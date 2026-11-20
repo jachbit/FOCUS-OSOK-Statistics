@@ -1,0 +1,9 @@
+# F.O.C.U.S. OSOK Statistics - OSOK times (one line per OSOK time, in YOUR PC's time)
+# HH:MM NAME      e.g.  07:00 10:00 News      (Pacific PC: ET minus 3 hours)
+# An entry filled within 15 minutes of a time gets that name (nearest wins); the same name
+# may be listed twice (18:00 Globex below). Names with "News" get the news_events.txt tags.
+# Anything not listed shows under Other times. Re-run make_stats.bat after a change.
+05:30 8:30 News
+06:30 9:30 NY Open
+15:00 18:00 Globex
+15:05 18:00 Globex

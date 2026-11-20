@@ -6,12 +6,16 @@ Reads NinjaTrader 8's own log files (Documents\NinjaTrader 8\log\log.*.en.txt), 
 (entry = BuyStop / SellStop fill from an OSOK No SL or With SL strategy, exit = the next TakeProfit / StopLoss /
 StopLossMkt fill on the same account + instrument) and writes the OSOK Stats page in the F.O.C.U.S. page template style.
 
-The page has a filter bar - OSOK Time (8:30 News / 9:30 NY Open / 18:00 Globex / other start times), Strategy
-(No SL / With SL), Account (Paper / Live), News (CPI / PPI / ... from news_events.txt) and a date range.
+The page has a filter bar - OSOK Time (the times in osok_times.txt + Other times), Strategy (No SL / With SL /
+ATM Entry), Account (Paper / Live / one account), News (CPI / PPI / ... from news_events.txt) and a date range.
 Every number, the curve and the tables recalculate in the browser when a filter is clicked.
 
+OSOK times: osok_times.txt next to this script, one line per OSOK time (PC time):  05:30 8:30 News
+           An entry filled within 15 minutes of a listed time gets its name (the nearest one wins);
+           anything else is "Other times".
 News tags: news_events.txt next to this script, one line per release:  2026-11-13 PPI
-           (applies to that date's 8:30 News trades; lines starting with # are notes)
+           (applies to that date's trades at the OSOK times with "News" in their name; to tag one time only,
+           put the time after the date:  2026-12-01 07:00 ISM;  lines starting with # are notes)
 
 Writes TWO copies:
   local\OSOK_Stats.html  - your copy, real account names (never uploaded - local\ is in .gitignore)
@@ -35,6 +39,7 @@ DOCS_OUT = os.path.join(HERE, "docs", "index.html")
 DOCS_JSON = os.path.join(HERE, "docs", "trades.json")
 ALIAS_FILE = os.path.join(HERE, "local", "account_aliases.json")
 NEWS_FILE = os.path.join(HERE, "news_events.txt")
+TIMES_FILE = os.path.join(HERE, "osok_times.txt")
 
 POINT_VALUE = {"MNQ": 2.0, "MES": 5.0, "NQ": 20.0, "ES": 50.0, "M2K": 5.0, "RTY": 50.0, "MYM": 0.5, "YM": 5.0}
 ENTRY_NAMES = {"BuyStop", "SellStop"}
@@ -51,7 +56,40 @@ ATM_OCO = "OSOKATM_"
 ATM_STRAT = ("ATM Entry", "ATM Level Entry")
 ATM_EXIT_RE = re.compile(r"^(Target[1-3]|Stop[1-3]?|StopMkt|Close)$")
 # start time (PC / Pacific) -> OSOK Time
-SESSIONS = [("05:30", "8:30 News"), ("06:30", "9:30 NY Open"), ("15:00", "18:00 Globex"), ("15:05", "18:00 Globex")]
+# default list - the real list is osok_times.txt (written with these lines the first time)
+DEFAULT_SESSIONS = [("05:30", "8:30 News"), ("06:30", "9:30 NY Open"), ("15:00", "18:00 Globex"), ("15:05", "18:00 Globex")]
+SESSION_WINDOW_MIN = 15
+SESSIONS = list(DEFAULT_SESSIONS)
+
+
+def load_times():
+    """osok_times.txt -> [(HH:MM, name)]; bad lines are reported and skipped"""
+    if not os.path.exists(TIMES_FILE):
+        with open(TIMES_FILE, "w", encoding="utf-8") as fh:
+            fh.write("# F.O.C.U.S. OSOK Statistics - OSOK times (one line per OSOK time, in YOUR PC's time)\n"
+                     "# HH:MM NAME      e.g.  07:00 10:00 News      (Pacific PC: ET minus 3 hours)\n"
+                     "# An entry filled within 15 minutes of a time gets that name (nearest wins); the same name\n"
+                     "# may be listed twice (18:00 Globex below). Names with \"News\" get the news_events.txt tags.\n"
+                     "# Anything not listed shows under Other times. Re-run make_stats.bat after a change.\n")
+            for hhmm, label in DEFAULT_SESSIONS:
+                fh.write("{} {}\n".format(hhmm, label))
+    out = []
+    with open(TIMES_FILE, encoding="utf-8") as fh:
+        for n, line in enumerate(fh, 1):
+            line = line.strip()
+            if not line or line.startswith("#"):
+                continue
+            parts = line.split(None, 1)
+            m = re.match(r"^(\d{1,2}):(\d{2})$", parts[0])
+            if len(parts) != 2 or not m or int(m.group(1)) > 23 or int(m.group(2)) > 59:
+                print("  [skipped] osok_times.txt line {}: {!r} - use HH:MM NAME, e.g. 07:00 10:00 News".format(n, line))
+                continue
+            out.append(("{:02d}:{}".format(int(m.group(1)), m.group(2)), parts[1].strip()))
+    return out or list(DEFAULT_SESSIONS)
+
+
+def is_news_time(label):
+    return "news" in label.lower()
 
 ORDER_RE = re.compile(r"Order='[^/]+/([^']+)' Name='([^']+)' New state='Filled' Instrument='([^']+)' Action='([^']+)' "
                       r"Limit price=([\d.]+) Stop price=([\d.]+) Quantity=(\d+) Type='([^']+)'.*?Filled=(\d+) Fill price=([\d.]+)")
@@ -74,8 +112,9 @@ def strat_of(name):
 def load_news():
     if not os.path.exists(NEWS_FILE):
         with open(NEWS_FILE, "w", encoding="utf-8") as fh:
-            fh.write("# F.O.C.U.S. OSOK Statistics - news releases (8:30 News trades on that date get the tag)\n"
+            fh.write("# F.O.C.U.S. OSOK Statistics - news releases (that date's News trades get the tag)\n"
                      "# One line per release:  YYYY-MM-DD NAME     e.g.  2026-12-10 CPI\n"
+                     "# Only one OSOK time that day:  YYYY-MM-DD HH:MM NAME   e.g.  2026-12-01 07:00 ISM\n"
                      "# Add each release as it happens; a wrong date puts trades under the wrong release.\n"
                      "2026-11-13 PPI\n")
     tags = {}
@@ -86,7 +125,12 @@ def load_news():
                 continue
             parts = line.split(None, 1)
             if len(parts) == 2 and re.match(r"^\d{4}-\d{2}-\d{2}$", parts[0]):
-                tags[parts[0]] = parts[1].strip()
+                rest = parts[1].strip()
+                m = re.match(r"^(\d{1,2}):(\d{2})\s+(.+)$", rest)
+                if m:   # date + time + name: only the trades at that OSOK time
+                    tags[(parts[0], "{:02d}:{}".format(int(m.group(1)), m.group(2)))] = m.group(3).strip()
+                else:   # date + name: every News time that day
+                    tags[(parts[0], None)] = rest
     return tags
 
 
@@ -124,7 +168,7 @@ def session_for(ts):
         h, m = map(int, hhmm.split(":"))
         start = ts.replace(hour=h, minute=m, second=0, microsecond=0)
         d = abs((ts - start).total_seconds())
-        if d <= 15 * 60 and (best is None or d < best[0]):
+        if d <= SESSION_WINDOW_MIN * 60 and (best is None or d < best[0]):
             best = (d, hhmm, label, start)
     if best:
         return best[1], best[2], best[3]
@@ -175,7 +219,7 @@ def build_trades(events, news):
         date = e["ts"].strftime("%Y-%m-%d")
         t = dict(date=date, dow=e["ts"].strftime("%a"), time=e["ts"].strftime("%H:%M:%S.%f")[:-3],
                  session=sess, start=hhmm, vs=round((e["ts"] - start).total_seconds(), 1),
-                 news=news.get(date, "") if sess == "8:30 News" else "",
+                 news=news.get((date, hhmm)) or (news.get((date, None), "") if is_news_time(sess) else ""),
                  strat=st[0], version=st[1], acct=e["acct"], paper=is_paper(e["acct"]), inst=e["inst"], root=root, pv=pv,
                  side="LONG" if is_long else "SHORT", qty=e["qty"], stop=e["stp"], entry=e["px"],
                  slip=round((e["px"] - e["stp"]) if is_long else (e["stp"] - e["px"]), 2),
@@ -327,7 +371,7 @@ const IMPORT_KEY = "focus_osok_stats_imported_v1__" + "__COPYKEY__";
 let DATA = [];
 const BUILT = "__BUILT__";
 const F = { time:"All", strat:"All", acct:"All", news:"All", from:"", to:"" };
-const SESSION_ORDER = ["8:30 News", "9:30 NY Open", "18:00 Globex"];
+const SESSION_ORDER = __SESSION_ORDER__;
 
 const esc = s => String(s == null ? "" : s).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 const num = (v, d=2) => { if (v == null) return "-"; let s = Number(v).toFixed(d); return s.indexOf(".") >= 0 ? s.replace(/0+$/,"").replace(/\.$/,"") : s; };
@@ -467,7 +511,7 @@ function caveats(ts, s) {
   if (ts.some(t => t.strat === "ATM Entry")) items.push(`<b>ATM Entry</b> = trades from the OSOK ATM Level Entry window in BRACKET mode (Timer, Pick, typed level or MKT). Its LONG / SHORT single entries and manual Chart Trader trades are not counted: they are not OSOK straddles. A trade closed in parts (TP1-3 / SL1-3 / FLATTEN) shows the average exit price of all its contracts.`);
   items.push(`<b>Gross, before commissions</b>, at the instrument's $ per point (MNQ $2).`);
   items.push(`<b>Sample size:</b> ${s.n} trade(s) over ${s.days} session(s) for these filters - a start, not proof.`);
-  items.push(`<b>News tags</b> come from news_events.txt (one line per release, e.g. 2026-12-10 CPI) and only mark 8:30 News trades. Add each release as it happens.`);
+  items.push(`<b>News tags</b> come from news_events.txt (one line per release, e.g. 2026-12-10 CPI) and mark that date's trades at the OSOK times with News in their name (osok_times.txt). Add each release as it happens.`);
   return items.map(x => `<li>${x}</li>`).join("");
 }
 
@@ -579,7 +623,7 @@ function render() {
   document.getElementById("kpis").innerHTML = kpis(s);
   document.getElementById("chart").innerHTML = chart(ts);
   document.getElementById("bySession").innerHTML = breakdown(ts, "session", "By OSOK Time", "OSOK Time");
-  document.getElementById("byNews").innerHTML = breakdown(ts.filter(t => t.session === "8:30 News"), "news", "8:30 News by release", "Release");
+  document.getElementById("byNews").innerHTML = breakdown(ts.filter(t => /news/i.test(t.session) || t.news), "news", "News by release", "Release");
   document.getElementById("byStrat").innerHTML = breakdown(ts, "strat", "By strategy", "Strategy");
   document.getElementById("bySide").innerHTML = breakdown(ts, "side", "By side", "Side");
   document.getElementById("byAcct").innerHTML = breakdown(ts, "paper", "Paper vs Live", "Account");
@@ -621,7 +665,8 @@ def aliases_for(trades):
 
 def write_page(path, trades, built, copynote, copykey):
     page = (PAGE.replace("__DATA__", json.dumps(trades, default=str)).replace("__BUILT__", built)
-                .replace("__COPYNOTE__", copynote).replace("__COPYKEY__", copykey))
+                .replace("__COPYNOTE__", copynote).replace("__COPYKEY__", copykey)
+                .replace("__SESSION_ORDER__", json.dumps(list(dict.fromkeys(lbl for _, lbl in SESSIONS)) + ["Other times"])))
     with open(path, "w", encoding="utf-8") as fh:
         fh.write(page)
 
@@ -629,6 +674,8 @@ def write_page(path, trades, built, copynote, copykey):
 def build():
     os.makedirs(os.path.dirname(LOCAL_OUT), exist_ok=True)
     os.makedirs(os.path.dirname(DOCS_OUT), exist_ok=True)
+    global SESSIONS
+    SESSIONS = load_times()
     news = load_news()
     trades = build_trades(parse_logs(), news)
     built = datetime.now().strftime("%Y-%m-%d %H:%M")
@@ -656,10 +703,12 @@ def build():
         len(trades), len(closed), sum(t["strat"] == "No SL" for t in trades), sum(t["strat"] == "With SL" for t in trades),
         sum(t["strat"] == "ATM Entry" for t in trades),
         sum(t["paper"] for t in trades), sum(not t["paper"] for t in trades)))
-    for sess in ("8:30 News", "9:30 NY Open", "18:00 Globex"):
+    print("OSOK times:", ", ".join("{} {}".format(h, l) for h, l in SESSIONS))
+    for sess in list(dict.fromkeys(lbl for _, lbl in SESSIONS)) + ["Other times"]:
         g = [t for t in closed if t["session"] == sess]
         print("  {:13} {:2} trades  {:+.2f}".format(sess, len(g), sum(t["usd"] for t in g)))
-    print("News tags:", ", ".join("{} {}".format(k, v) for k, v in sorted(news.items())) or "none")
+    print("News tags:", ", ".join(" ".join(x for x in (d, hm, v) if x)
+                                  for (d, hm), v in sorted(news.items(), key=lambda kv: (kv[0][0], kv[0][1] or ""))) or "none")
     if leaked:
         raise SystemExit("Masking failed - do NOT upload docs\\ until this is fixed.")
 

@@ -28,6 +28,8 @@ Account names are masked on the public page (Paper 1, Paper 2, Live 1 ...).
 ## Build (local)
 
 1. Tag news releases in `news_events.txt`, one per line: `2026-12-10 CPI`.
+   It tags that date's trades at every OSOK time with *News* in its name. For one time only, put the
+   time after the date: `2026-12-01 07:00 ISM`. News tags are never automatic.
 2. Run `make_stats.bat` (or `python build_stats.py`).
    - `local/OSOK_Stats.html` - your copy with the real account names (never uploaded).
    - `docs/index.html` + `docs/trades.json` - the public copy, account names masked.
@@ -42,6 +44,24 @@ The data comes from NinjaTrader's own log files (`Documents\NinjaTrader 8\log\lo
 | ATM Entry | `Entry` fills whose OCO starts with `OSOKATM_` - the BRACKET trades of the `OSOK_ATM_Level_Entry` window | Target1-3 / Stop / Stop1-3 / StopMkt / Close fills until the position is closed (average exit price) |
 
 Exits are matched on the same account and instrument. Manual Chart Trader trades are never counted.
+
+### OSOK times (`osok_times.txt`)
+
+The OSOK time of a trade comes from its entry fill time in the log (the PC's clock - the Start Time you
+set in the strategy is not in the log). `osok_times.txt` lists the times, one per line, `HH:MM NAME`:
+
+```
+05:30 8:30 News
+06:30 9:30 NY Open
+07:00 10:00 News
+15:00 18:00 Globex
+```
+
+- A fill within 15 minutes of a listed time gets its name; when two times are close, the nearest wins.
+- The same name can be listed twice (e.g. `15:00` and `15:05` for 18:00 Globex).
+- Names containing *News* get the `news_events.txt` tags.
+- Anything else shows under **Other times**, with its real fill time on the row.
+- Each name gets its own filter chip and row in *By OSOK Time*. Re-run `make_stats.bat` after a change.
 
 ## Use it with your own NinjaTrader 8
 
@@ -63,8 +83,9 @@ it reads your NinjaTrader logs and nothing leaves your computer.
      the page - export a CSV now and then and keep it.
    - The `docs\` folder is rebuilt with your trades (account names masked), replacing the owner's copy
      from the ZIP. Publish it on your own GitHub Pages only if you want a public page.
-7. **Times** are your PC's time zone. The OSOK times 8:30 News / 9:30 NY Open / 18:00 Globex are found at
-   05:30 / 06:30 / 15:00 Pacific; on a PC in another time zone those trades show under *Other times*.
+7. **Times** are your PC's time zone. The starting `osok_times.txt` is set for a Pacific PC
+   (05:30 / 06:30 / 15:00). On a PC in another time zone, change those times to your clock - e.g. an
+   Eastern PC: `08:30 8:30 News`, `09:30 9:30 NY Open`, `18:00 18:00 Globex`.
 
 **CSV import** only reads a CSV in this page's own export format (the CSV export button), not
 NinjaTrader's Trade Performance export.
